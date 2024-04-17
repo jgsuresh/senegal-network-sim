@@ -80,39 +80,27 @@ def vector_to_human_transmission(infection_lookup, vector_lookup, human_lookup):
 
 def timestep_bookkeeping(infection_lookup, vector_lookup):
     # Update infections and clear any which have completed their duration
-    if infection_lookup.shape[0] == 0:
-        pass
-    else:
+    if not infection_lookup.empty:
         infection_lookup["days_until_clearance"] -= 1
-        indices = infection_lookup["days_until_clearance"] == 0
-        if indices.sum() > 0:
-            infection_lookup = infection_lookup[~indices]
+        infection_lookup = infection_lookup[infection_lookup["days_until_clearance"] != 0]
 
     # Vectors that just bit go back to 3 days until next bite
-    if vector_lookup.shape[0] == 0:
-        pass
-    else:
+    if not vector_lookup.empty:
         indices = vector_lookup["days_until_next_bite"] == 0
-        vector_lookup["total_bites_remaining"][indices] -= 1
-        vector_lookup["days_until_next_bite"][indices] = 3
+        vector_lookup.loc[indices, "total_bites_remaining"] -= 1
+        vector_lookup.loc[indices, "days_until_next_bite"] = 3
 
         # Remove vectors which have no bites remaining
-        indices = vector_lookup["total_bites_remaining"] == 0
-        if indices.sum() > 0:
-            vector_lookup = vector_lookup[~indices]
+        vector_lookup = vector_lookup[vector_lookup["total_bites_remaining"] != 0]
 
-    # Update vector clocks
-    if vector_lookup.shape[0] == 0:
-        pass
-    else:
+    # Update vector clocks if there are still vectors
+    if not vector_lookup.empty:
         vector_lookup["days_until_next_bite"] -= 1
 
     return infection_lookup, vector_lookup
 
 
 def generate_human_lookup_from_infection_lookup(infection_lookup, human_lookup=None):
-    human_ids = np.arange(N_individuals)
-
     # If human lookup is provided, use it. Otherwise, generate a new one
     if human_lookup is not None:
         pass
@@ -161,9 +149,9 @@ def generate_human_summary_stats_from_infection_lookup(infection_lookup):
 
 
 # Set up simulation parameters
-sim_duration = 100 # 365*1
-N_individuals = 10000
-N_initial_infections = 4000
+sim_duration = 365*10
+N_individuals = 1000
+N_initial_infections = 400
 individual_infection_duration = 100
 individual_infectiousness = 0.1
 infectiousness_distribution = "constant" # "exponential"
