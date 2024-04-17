@@ -9,7 +9,7 @@ def human_to_vector_transmission(infection_lookup, vector_lookup, human_lookup):
     n_infected_mosquitos = np.random.poisson(lam=human_lookup["daily_bite_rate"] * human_lookup["infectiousness"])
 
     # Determine how many of these mosquitos survive to deliver >= 1 infectious bites
-    n_surviving_mosquitos = np.random.binomial(n=n_infected_mosquitos, p=0.36)
+    n_surviving_mosquitos = np.random.binomial(n=n_infected_mosquitos, p=prob_survive_to_infectiousness)
 
     total_num_surviving_mosquitos = n_surviving_mosquitos.sum()
     if total_num_surviving_mosquitos == 0:
@@ -17,11 +17,14 @@ def human_to_vector_transmission(infection_lookup, vector_lookup, human_lookup):
     else:
         # Append these mosquitos to latent mosquito array
         vector_ids = np.arange(total_num_surviving_mosquitos)
-        # human_ids_picked_up = np.repeat(human_lookup["human_id"].values, n_surviving_mosquitos)
         infection_ids_picked_up = np.repeat(human_lookup["infection_ids"].values, n_surviving_mosquitos)
         days_until_next_bite = np.ones_like(vector_ids) * (11 + 1)
-        total_bites_remaining = np.random.randint(1,6, size=total_num_surviving_mosquitos) #fixme draw from distribution
-        # total_bites_remaining = np.random.poisson(lam=1.34, size=total_num_surviving_mosquitos)
+
+        if bites_from_infected_mosquito_distribution == "constant":
+            total_bites_remaining = mean_bites_from_infected_mosquito
+        elif bites_from_infected_mosquito_distribution == "poisson":
+            total_bites_remaining = np.random.poisson(lam=mean_bites_from_infected_mosquito, size=total_num_surviving_mosquitos)
+            # total_bites_remaining = np.random.randint(1,6, size=total_num_surviving_mosquitos) #fixme draw from distribution
 
         new_vector_lookup = pd.DataFrame({
             "vector_id": vector_ids,
@@ -64,7 +67,7 @@ def vector_to_human_transmission(infection_lookup, vector_lookup, human_lookup):
             new_infections = pd.DataFrame({
                 "infection_id": max_infection_id + 1 + np.arange(n_new_infectious_bites), #fixme for now, may repeat infection ids
                 # "human_id": np.random.choice(human_ids, n_new_infectious_bites, replace=True), #missing biting heterogeneity, max num infections
-                "human_id": np.random.choice(human_ids, size=n_new_infectious_bites, p=weights), #fixme max num infections
+                "human_id": np.random.choice(human_ids, size=n_new_infectious_bites, p=weights, replace=True), #fixme max num infections
                 "infectiousness": infectiousness, #fixme draw from distribution
                 "days_until_clearance": individual_infection_duration + 1 #fixme draw from distribution
             })
@@ -132,7 +135,8 @@ def generate_human_lookup_from_infection_lookup(infection_lookup, human_lookup=N
     # human_lookup["infectiousness"] = [infection_lookup[infection_lookup["human_id"] == human_id]["infectiousness"].max() for human_id in human_ids]
     # human_lookup["infectiousness"].fillna(0, inplace=True)
     # Group the infection_lookup DataFrame by 'human_id' and get the max 'infectiousness'
-    grouped = infection_lookup.groupby('human_id')['infectiousness'].max()
+    # grouped = infection_lookup.groupby('human_id')['infectiousness'].max()
+    grouped = infection_lookup.groupby('human_id')['infectiousness'].sum()
 
     # Assign the result to the 'infectiousness' column in human_lookup
     human_lookup['infectiousness'] = human_lookup['human_id'].map(grouped)
@@ -149,14 +153,17 @@ def generate_human_summary_stats_from_infection_lookup(infection_lookup):
 
 
 # Set up simulation parameters
-sim_duration = 365*10
-N_individuals = 1000
+sim_duration = 365*3
+N_individuals = 400
 N_initial_infections = 400
 individual_infection_duration = 100
-individual_infectiousness = 0.1
+individual_infectiousness = 0.01
 infectiousness_distribution = "constant" # "exponential"
-daily_bite_rate = 0.1
+daily_bite_rate = 1
 daily_bite_rate_distribution = "constant" # "exponential"
+prob_survive_to_infectiousness = 1 # 0.36
+bites_from_infected_mosquito_distribution = "constant"
+mean_bites_from_infected_mosquito = 1 # 1.34
 
 human_ids = np.arange(N_individuals)
 # emod_lifespans = np.ones(100)
@@ -186,26 +193,15 @@ def main():
                                      "infectiousness": infectiousness,
                                      "days_until_clearance": np.random.randint(1, individual_infection_duration+1, N_initial_infections)})
 
-    # Generate human lookup
+    # Generate human and vector lookups
     human_lookup = generate_human_lookup_from_infection_lookup(infection_lookup)
-    # human_lookup = pd.DataFrame({"human_id": np.arange(N_individuals),
-    #                              "hbr": daily_bite_rate})
-    # human_lookup["infectiousness"] = [infection_lookup[infection_lookup["human_id"] == human_id]["infectiousness"].max() for human_id in human_ids]
-    # human_lookup["infectiousness"].fillna(0, inplace=True)
-
-    # Generate vector lookup
     vector_lookup = pd.DataFrame({"vector_id": [], "infection_id": [], "days_until_next_bite": []})
 
     # Set up summary statistics
-    # t = np.array([])
-    # n_infections = np.array([])
-    # n_humans_infected = np.array([])
-    # n_infected_vectors = np.array([])
     summary_statistics = pd.DataFrame({"time": [],
                                        "n_infections": [],
                                        "n_humans_infected": [],
                                        "n_infected_vectors": []})
-
 
     # Loop over timesteps
     for t in range(sim_duration):
