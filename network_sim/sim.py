@@ -2,14 +2,10 @@ import numpy as np
 import pandas as pd
 
 
-def human_infectiousness(infection_lookup):
-    human_lookup = pd.DataFrame({"human_id": np.arange(N_individuals)})
-    human_lookup["infectiousness"] = [infection_lookup[infection_lookup["human_id"] == human_id]["infectiousness"].max() for human_id in human_ids]
-    human_lookup["infectiousness"].fillna(0, inplace=True)
 
 def human_to_vector_transmission(infection_lookup, vector_lookup, human_lookup):
     # Determine number of mosquitos infected by this infection today by doing a Poisson draw for each infection
-    n_infected_mosquitos = np.random.poisson(lam=daily_bite_rate * human_lookup["infectiousness"])
+    n_infected_mosquitos = np.random.poisson(lam=human_lookup["daily_bite_rate"] * human_lookup["infectiousness"])
 
     # Determine how many of these mosquitos survive to deliver >= 1 infectious bites
     n_surviving_mosquitos = np.random.binomial(n=n_infected_mosquitos, p=0.36)
@@ -23,7 +19,8 @@ def human_to_vector_transmission(infection_lookup, vector_lookup, human_lookup):
         # human_ids_picked_up = np.repeat(human_lookup["human_id"].values, n_surviving_mosquitos)
         infection_ids_picked_up = np.repeat(human_lookup["infection_ids"].values, n_surviving_mosquitos)
         days_until_next_bite = np.ones_like(vector_ids) * (11 + 1)
-        total_bites_remaining = np.random.randint(1,6) #fixme draw from distribution
+        total_bites_remaining = np.random.randint(1,6, size=total_num_surviving_mosquitos) #fixme draw from distribution
+        # total_bites_remaining = np.random.poisson(lam=1.34, size=total_num_surviving_mosquitos)
 
         new_vector_lookup = pd.DataFrame({
             "vector_id": vector_ids,
@@ -55,10 +52,19 @@ def vector_to_human_transmission(infection_lookup, vector_lookup, human_lookup):
             if infection_lookup.shape[0] > 0:
                 max_infection_id = infection_lookup["infection_id"].max()
 
+            # New infectious bites delivered proportionally based on bite rate
+            weights = human_lookup["daily_bite_rate"]/human_lookup["daily_bite_rate"].sum()
+
+            if infectiousness_distribution == "constant":
+                infectiousness = np.ones(n_new_infectious_bites) * individual_infectiousness
+            elif infectiousness_distribution == "exponential":
+                infectiousness = np.random.exponential(scale=individual_infectiousness, size=n_new_infectious_bites)
+
             new_infections = pd.DataFrame({
                 "infection_id": max_infection_id + 1 + np.arange(n_new_infectious_bites), #fixme for now, may repeat infection ids
-                "human_id": np.random.choice(human_ids, n_new_infectious_bites, replace=True), #fixme biting heterogeneity, max num infections
-                "infectiousness": individual_infectiousness, #fixme draw from distribution
+                # "human_id": np.random.choice(human_ids, n_new_infectious_bites, replace=True), #missing biting heterogeneity, max num infections
+                "human_id": np.random.choice(human_ids, size=n_new_infectious_bites, p=weights), #fixme max num infections
+                "infectiousness": infectiousness, #fixme draw from distribution
                 "days_until_clearance": individual_infection_duration + 1 #fixme draw from distribution
             })
 
@@ -106,7 +112,11 @@ def generate_human_lookup_from_infection_lookup(N_individuals, infection_lookup,
         pass
     else:
         human_lookup = pd.DataFrame({"human_id": human_ids})
-        human_lookup["bite_rate"] = daily_bite_rate
+
+        if daily_bite_rate_distribution == "exponential":
+            human_lookup["daily_bite_rate"] = np.random.exponential(scale=daily_bite_rate, size=N_individuals)
+        elif daily_bite_rate_distribution == "constant":
+            human_lookup["daily_bite_rate"] = daily_bite_rate
 
     # infection_lookup.groupby("human_id").agg(infection_ids=("infection_id", list) fixme May be a way to do this faster
 
@@ -127,17 +137,30 @@ N_individuals = 1000
 human_ids = np.arange(N_individuals)
 # For now, let infection duration and infectiousness be fixed
 individual_infection_duration = 100
+
 individual_infectiousness = 0.1
+infectiousness_distribution = "exponential"
+
 N_initial_infections = 400
-sim_duration = 30 # 365*1
+sim_duration = 100 # 365*1
+
 daily_bite_rate = 0.1
+daily_bite_rate_distribution = "exponential"
+
+emod_lifespans = np.ones(100)
+for i in np.arange(len(emod_lifespans)):
+    # emod_lifespans[i] *= (0.85 * np.exp(-3/20))**i
+    emod_lifespans[i] = 1-(0.85 * np.exp(-3/20))**i
 
 if __name__ == "__main__":
     # max_previous_vector_id = 0 #fixme for now, may repeat vector ids
 
     # human_is_infected = np.zeros(N_individuals)
     infection_ids = np.arange(N_initial_infections)
-    infectiousness = np.ones(N_initial_infections) * individual_infectiousness
+    if infectiousness_distribution == "constant":
+        infectiousness = np.ones(N_initial_infections) * individual_infectiousness
+    elif infectiousness_distribution == "exponential":
+        infectiousness = np.random.exponential(scale=individual_infectiousness, size=N_initial_infections)
     infection_duration = np.ones(N_initial_infections) * individual_infection_duration
 
     # Distribute initial infections randomly to humans

@@ -1,7 +1,5 @@
 import pathlib
-from functools import partial
 
-import numpy as np
 from emod_api.demographics import Demographics
 from emodpy import emod_task
 from emodpy.emod_task import EMODTask
@@ -13,9 +11,8 @@ from idmtools.entities.experiment import Experiment
 from emod_sims import manifest
 from emod_sims.build_campaign import build_full_campaign
 from emod_sims.build_config import set_full_config
-from emod_sims.reports import add_testing_reports, add_burnin_reports, add_standard_cotransmission_reports
-
-from emod_sims.sweeps import set_larval_habitat, set_run_number, set_x_temp
+from emod_sims.reports import add_testing_reports
+from emod_sims.sweeps import set_run_number, set_x_temp
 
 
 def create_and_submit_experiment():
@@ -46,7 +43,7 @@ def create_and_submit_experiment():
     task.set_sif(manifest.sif)
 
     # add_standard_reports(task)
-    # add_testing_reports(task)
+    add_testing_reports(task)
 
     # Create simulation sweep with builder
     builder = SimulationBuilder()
