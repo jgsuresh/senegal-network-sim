@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import cProfile
 
 
 
@@ -72,7 +73,7 @@ def vector_to_human_transmission(infection_lookup, vector_lookup, human_lookup):
             infection_lookup = pd.concat([infection_lookup, new_infections], ignore_index=True)
 
             # Update human lookup by adding new infections. Add new infection to existing infections for each human
-            human_lookup = generate_human_lookup_from_infection_lookup(N_individuals, infection_lookup, human_lookup)
+            human_lookup = generate_human_lookup_from_infection_lookup(infection_lookup, human_lookup)
 
             return infection_lookup, vector_lookup, human_lookup
 
@@ -88,14 +89,17 @@ def timestep_bookkeeping(infection_lookup, vector_lookup):
             infection_lookup = infection_lookup[~indices]
 
     # Vectors that just bit go back to 3 days until next bite
-    indices = vector_lookup["days_until_next_bite"] == 0
-    vector_lookup["total_bites_remaining"][indices] -= 1
-    vector_lookup["days_until_next_bite"][indices] = 3
+    if vector_lookup.shape[0] == 0:
+        pass
+    else:
+        indices = vector_lookup["days_until_next_bite"] == 0
+        vector_lookup["total_bites_remaining"][indices] -= 1
+        vector_lookup["days_until_next_bite"][indices] = 3
 
-    # Remove vectors which have no bites remaining
-    indices = vector_lookup["total_bites_remaining"] == 0
-    if indices.sum() > 0:
-        vector_lookup = vector_lookup[~indices]
+        # Remove vectors which have no bites remaining
+        indices = vector_lookup["total_bites_remaining"] == 0
+        if indices.sum() > 0:
+            vector_lookup = vector_lookup[~indices]
 
     # Update vector clocks
     if vector_lookup.shape[0] == 0:
@@ -106,8 +110,10 @@ def timestep_bookkeeping(infection_lookup, vector_lookup):
     return infection_lookup, vector_lookup
 
 
-def generate_human_lookup_from_infection_lookup(N_individuals, infection_lookup, human_lookup=None):
+def generate_human_lookup_from_infection_lookup(infection_lookup, human_lookup=None):
     human_ids = np.arange(N_individuals)
+
+    # If human lookup is provided, use it. Otherwise, generate a new one
     if human_lookup is not None:
         pass
     else:
@@ -117,14 +123,35 @@ def generate_human_lookup_from_infection_lookup(N_individuals, infection_lookup,
             human_lookup["daily_bite_rate"] = np.random.exponential(scale=daily_bite_rate, size=N_individuals)
         elif daily_bite_rate_distribution == "constant":
             human_lookup["daily_bite_rate"] = daily_bite_rate
+        else:
+            raise ValueError("Invalid daily bite rate distribution")
 
     # infection_lookup.groupby("human_id").agg(infection_ids=("infection_id", list) fixme May be a way to do this faster
 
-    human_lookup["infection_ids"] = [list(infection_lookup[infection_lookup["human_id"] == human_id]["infection_id"]) for human_id in human_ids] #fixme may be able to optimize this
-    human_lookup["is_infected"] = [len(infection_ids) > 0 for infection_ids in human_lookup["infection_ids"]]
-    human_lookup["infectiousness"] = [infection_lookup[infection_lookup["human_id"] == human_id]["infectiousness"].max() for human_id in human_ids]
-    human_lookup["infectiousness"].fillna(0, inplace=True)
-    human_lookup["num_infections"] = [len(infection_ids) for infection_ids in human_lookup["infection_ids"]]
+    # human_lookup["infection_ids"] = [list(infection_lookup[infection_lookup["human_id"] == human_id]["infection_id"]) for human_id in human_ids] #fixme may be able to optimize this
+    # Group the infection_lookup DataFrame by 'human_id' and aggregate 'infection_id' into lists
+    grouped = infection_lookup.groupby('human_id')['infection_id'].apply(list)
+
+    # Assign the result to the 'infection_ids' column in human_lookup
+    human_lookup['infection_ids'] = human_lookup['human_id'].map(grouped)
+
+    # Fill NaN values with empty lists for humans with no infections
+    # human_lookup['infection_ids'].fillna(value=[], inplace=True)
+    # human_lookup['infection_ids'].fillna(value=[[] for _ in range(len(human_lookup))], inplace=True)
+
+    # human_lookup["is_infected"] = [len(infection_ids) > 0 for infection_ids in human_lookup["infection_ids"]]
+    human_lookup["is_infected"] = np.logical_not(human_lookup["infection_ids"].isna())
+    # human_lookup["infectiousness"] = [infection_lookup[infection_lookup["human_id"] == human_id]["infectiousness"].max() for human_id in human_ids]
+    # human_lookup["infectiousness"].fillna(0, inplace=True)
+    # Group the infection_lookup DataFrame by 'human_id' and get the max 'infectiousness'
+    grouped = infection_lookup.groupby('human_id')['infectiousness'].max()
+
+    # Assign the result to the 'infectiousness' column in human_lookup
+    human_lookup['infectiousness'] = human_lookup['human_id'].map(grouped)
+
+    # Fill NaN values with 0 for humans with no infections
+    human_lookup['infectiousness'].fillna(0, inplace=True)
+    # human_lookup["num_infections"] = [len(infection_ids) for infection_ids in human_lookup["infection_ids"]]
     return human_lookup
 
 def generate_human_summary_stats_from_infection_lookup(infection_lookup):
@@ -133,45 +160,46 @@ def generate_human_summary_stats_from_infection_lookup(infection_lookup):
     max_infections_per_human = infection_lookup["human_id"].value_counts().max()
 
 
-N_individuals = 1000
-human_ids = np.arange(N_individuals)
-# For now, let infection duration and infectiousness be fixed
-individual_infection_duration = 100
-
-individual_infectiousness = 0.1
-infectiousness_distribution = "exponential"
-
-N_initial_infections = 400
+# Set up simulation parameters
 sim_duration = 100 # 365*1
-
+N_individuals = 10000
+N_initial_infections = 4000
+individual_infection_duration = 100
+individual_infectiousness = 0.1
+infectiousness_distribution = "constant" # "exponential"
 daily_bite_rate = 0.1
-daily_bite_rate_distribution = "exponential"
+daily_bite_rate_distribution = "constant" # "exponential"
 
-emod_lifespans = np.ones(100)
-for i in np.arange(len(emod_lifespans)):
-    # emod_lifespans[i] *= (0.85 * np.exp(-3/20))**i
-    emod_lifespans[i] = 1-(0.85 * np.exp(-3/20))**i
+human_ids = np.arange(N_individuals)
+# emod_lifespans = np.ones(100)
+# for i in np.arange(len(emod_lifespans)):
+#     # emod_lifespans[i] *= (0.85 * np.exp(-3/20))**i
+#     emod_lifespans[i] = 1-(0.85 * np.exp(-3/20))**i
 
-if __name__ == "__main__":
+
+# if __name__ == "__main__":
+def main():
     # max_previous_vector_id = 0 #fixme for now, may repeat vector ids
 
-    # human_is_infected = np.zeros(N_individuals)
+    # Generate initial infections
     infection_ids = np.arange(N_initial_infections)
     if infectiousness_distribution == "constant":
         infectiousness = np.ones(N_initial_infections) * individual_infectiousness
     elif infectiousness_distribution == "exponential":
         infectiousness = np.random.exponential(scale=individual_infectiousness, size=N_initial_infections)
+    else:
+        raise ValueError("Invalid infectiousness distribution")
     infection_duration = np.ones(N_initial_infections) * individual_infection_duration
 
-    # Distribute initial infections randomly to humans
-    indices = np.random.choice(human_ids, N_initial_infections, replace=False)
+    # Distribute initial infections randomly to humans, with random time until clearance
+    indices = np.random.choice(human_ids, N_initial_infections, replace=True)
     infection_lookup = pd.DataFrame({"infection_id": infection_ids,
                                      "human_id": indices,
                                      "infectiousness": infectiousness,
                                      "days_until_clearance": np.random.randint(1, individual_infection_duration+1, N_initial_infections)})
 
     # Generate human lookup
-    human_lookup = generate_human_lookup_from_infection_lookup(N_individuals, infection_lookup)
+    human_lookup = generate_human_lookup_from_infection_lookup(infection_lookup)
     # human_lookup = pd.DataFrame({"human_id": np.arange(N_individuals),
     #                              "hbr": daily_bite_rate})
     # human_lookup["infectiousness"] = [infection_lookup[infection_lookup["human_id"] == human_id]["infectiousness"].max() for human_id in human_ids]
@@ -214,3 +242,6 @@ if __name__ == "__main__":
     plt.plot(summary_statistics["time"], summary_statistics["n_infected_vectors"], label="Number of vectors")
     plt.legend()
     plt.show()
+
+if __name__ == "__main__":
+    cProfile.run('main()')
