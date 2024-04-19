@@ -28,7 +28,7 @@ def human_to_vector_transmission(infection_lookup, vector_lookup, human_lookup):
 
         new_vector_lookup = pd.DataFrame({
             "vector_id": vector_ids,
-            "infection_id": infection_ids_picked_up,
+            "infection_ids_picked_up": infection_ids_picked_up,
             "days_until_next_bite": days_until_next_bite,
             "total_bites_remaining": total_bites_remaining
         })
@@ -151,6 +151,45 @@ def generate_human_summary_stats_from_infection_lookup(infection_lookup):
     avg_infections_per_human = infection_lookup.shape[0] / n_infected_humans
     max_infections_per_human = infection_lookup["human_id"].value_counts().max()
 
+def initialize_genotype_lookup():
+    genotype_lookup = pd.DataFrame({"genotype_id": np.arange(N_initial_infections),
+                                    "infection_id": np.arange(N_initial_infections)})
+
+    # Initialize actual genotypes based on allele frequencies.
+    # Set columns for each of N_barcode_positions
+    for i in range(1, N_barcode_positions+1):
+        genotype_lookup[f"pos_{str(i).zfill(3)}"] = np.random.binomial(n=1, p=0.5, size=N_initial_infections)
+
+    return genotype_lookup
+
+def recombine_in_vectors(vector_lookup):
+    # Get vectors with multiple infections
+    has_multiple_infections = vector_lookup["infection_id"].apply(lambda x: len(x) > 1)
+
+    # For each vector with multiple infections, simulate recombination
+    # for i in range(vector_lookup[has_multiple_infections].shape[0]):
+    #     vector = vector_lookup[has_multiple_infections].iloc[i]
+    #     strain1 = vector["infection_id"].iloc[0]
+    #     strain2 = vector["infection_id"].iloc[1]
+    #     strain1_genotype = strain_lookup[strain_lookup["strain_id"] == strain1]
+    #     strain2_genotype = strain_lookup[strain_lookup["strain_id"] == strain2]
+    #
+    #     # Recombine genotypes
+    #     new_genotype = strain1_genotype.copy()
+    #     for i in range(1, N_barcode_positions+1):
+    #         if np.random.binomial(n=1, p=0.5):
+    #             new_genotype[f"pos_{str(i).zfill(3)}"] = strain1_genotype[f"pos_{str(i).zfill(3)}"]
+    #         else:
+    #             new_genotype[f"pos_{str(i).zfill(3)}"] = strain2_genotype[f"pos_{str(i).zfill(3)}"]
+    #
+    #     # Add new genotype to strain lookup
+    #     strain_lookup = pd.concat([strain_lookup, new_genotype], ignore_index=True)
+    #     new_strain_id = strain_lookup["strain_id"].max()
+    #
+    #     # Update vector lookup to reflect recombination
+    #     vector_lookup.loc[vector_lookup["vector_id"] == vector["vector_id"], "infection_id"] = new_strain_id
+
+
 
 # Set up simulation parameters
 sim_duration = 365*3
@@ -164,6 +203,7 @@ daily_bite_rate_distribution = "constant" # "exponential"
 prob_survive_to_infectiousness = 1 # 0.36
 bites_from_infected_mosquito_distribution = "constant"
 mean_bites_from_infected_mosquito = 1 # 1.34
+N_barcode_positions = 5
 
 human_ids = np.arange(N_individuals)
 # emod_lifespans = np.ones(100)
@@ -196,6 +236,8 @@ def main():
     # Generate human and vector lookups
     human_lookup = generate_human_lookup_from_infection_lookup(infection_lookup)
     vector_lookup = pd.DataFrame({"vector_id": [], "infection_id": [], "days_until_next_bite": []})
+
+    strain_lookup = initialize_strain_lookup()
 
     # Set up summary statistics
     summary_statistics = pd.DataFrame({"time": [],
