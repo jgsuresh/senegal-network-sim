@@ -3,6 +3,7 @@ import pandas as pd
 import cProfile
 
 from network_sim.meiosis_models.super_simple import gametocyte_to_sporozoite_genotypes
+from network_sim.metrics import complexity_of_infection, get_n_unique_strains, polygenomic_fraction
 
 
 def human_to_vector_transmission(infection_lookup, vector_lookup, human_lookup):
@@ -18,8 +19,11 @@ def human_to_vector_transmission(infection_lookup, vector_lookup, human_lookup):
     else:
         # Append these mosquitos to latent mosquito array
         vector_ids = np.arange(total_num_surviving_mosquitos)
-        # acquired_infection_ids = np.repeat(human_lookup["infection_ids"].values, n_surviving_mosquitos)
+
+        # Fixme: following line is that it assumes that all infection genotypes will be transmitted.
+        # Fixme: Instead, mosquito sampling is noisy: genotypes make it to midgut with some probability
         gametocyte_genotypes = np.repeat(human_lookup["infection_genotypes"].values, n_surviving_mosquitos)
+
         days_until_next_bite = np.ones_like(vector_ids) * (11 + 1)
 
         if bites_from_infected_mosquito_distribution == "constant":
@@ -32,6 +36,7 @@ def human_to_vector_transmission(infection_lookup, vector_lookup, human_lookup):
             "vector_id": vector_ids,
             # "acquired_infection_ids": acquired_infection_ids,
             "gametocyte_genotypes": gametocyte_genotypes,
+            # gametocyte_densities: gametocyte_densities,
             "days_until_next_bite": days_until_next_bite,
             "total_bites_remaining": total_bites_remaining
         })
@@ -121,9 +126,20 @@ def timestep_bookkeeping(infection_lookup, vector_lookup):
 
     # Update vector clocks if there are still vectors
     if not vector_lookup.empty:
-        vector_lookup["days_until_next_bite"] -= 1
+        # vector_lookup["days_until_next_bite"] -= 1
+        vector_lookup.loc[:, "days_until_next_bite"] -= 1 # Avoid SettingWithCopyWarning
 
     return infection_lookup, vector_lookup
+
+# def human_infectiousness_from_infection_lookup(human_lookup, infection_lookup):
+#     # Infectiousness is defined as the probability that at least one infection genotype is transmitted
+#     # Under the assumption that the genotypes act independently, this is NOT the sum of the individual infectiousnesses
+#     # Rather, it is infectiousness = 1 - np.prod(1 - infection_lookup["infectiousness"])
+#     f = lambda x: 1 - np.prod(1 - x)
+#
+#     human_lookup['infectiousness'] = human_lookup['human_id'].map(
+#         infection_lookup.groupby('human_id')['infectiousness'].agg(f))
+
 
 
 def generate_human_lookup_from_infection_lookup(infection_lookup, human_lookup=None):
@@ -147,10 +163,22 @@ def generate_human_lookup_from_infection_lookup(infection_lookup, human_lookup=N
     human_lookup['infection_ids'] = human_lookup['human_id'].map(infection_lookup.groupby('human_id')['infection_id'].apply(list))
     human_lookup['infection_genotypes'] = human_lookup['human_id'].map(infection_lookup.groupby('human_id')['genotype'].apply(list))
     human_lookup["is_infected"] = np.logical_not(human_lookup["infection_ids"].isna())
+
+    # Infectiousness is defined as the probability that at least one infection genotype is transmitted
+    # Under the assumption that the genotypes act independently, this is NOT the sum of the individual infectiousnesses
+    # Rather, it is infectiousness = 1 - np.prod(1 - infection_lookup["infectiousness"])
+    # f = lambda x: 1 - np.prod(1 - x)
+    # human_lookup['infectiousness'] = human_lookup['human_id'].map(
+    #     infection_lookup.groupby('human_id')['infectiousness'].agg(f))
+
+    # human_lookup['infectiousness'] = human_lookup['human_id'].map(infection_lookup.groupby('human_id')['infectiousness'].sum())
+    # # Limit infectiousness to a max of 1
+    # human_lookup['infectiousness'] = human_lookup['infectiousness'].clip(upper=1)
     human_lookup['infectiousness'] = human_lookup['human_id'].map(infection_lookup.groupby('human_id')['infectiousness'].max())
 
     # Fill NaN values with 0 for humans with no infections
     human_lookup['infectiousness'].fillna(0, inplace=True)
+    # human_lookup.loc[:, "infectiousness"].fillna(0, inplace=True) # Avoid SettingWithCopyWarning
     # human_lookup["num_infections"] = [len(infection_ids) for infection_ids in human_lookup["infection_ids"]]
     return human_lookup
 
@@ -209,7 +237,7 @@ def get_max_infection_id(infection_lookup):
 
 # Set up simulation parameters
 sim_duration = 365*3
-N_individuals = 400
+N_individuals = 300
 N_initial_infections = 400
 individual_infection_duration = 100
 individual_infectiousness = 0.01
@@ -264,11 +292,19 @@ def main():
                                        "n_infections": [],
                                        "n_humans_infected": [],
                                        "n_infected_vectors": [],
-                                       # "n_unique_strains": []
+                                       "n_unique_genotypes": [],
+                                       "polygenomic_fraction": [],
+                                       "coi": []
                                        })
+
+    # Set up full dataframe for post hoc analysis
+    full_df = human_infection_lookup[["human_id", "genotype"]]
+    full_df["t"] = 0
 
     # Loop over timesteps
     for t in range(sim_duration):
+        if t % 100 == 0:
+            print(f"Time: {t}")
         # Simulate human to vector transmission
         vector_lookup = human_to_vector_transmission(human_infection_lookup, vector_lookup, human_lookup)
         human_infection_lookup, vector_lookup, human_lookup = vector_to_human_transmission(human_infection_lookup, vector_lookup, human_lookup)
@@ -278,10 +314,18 @@ def main():
 
         # Record summary statistics
         summary_statistics = pd.concat([summary_statistics,
-                                        pd.DataFrame({"time": [t],
+                                        pd.DataFrame({"time": [t+1],
                                                       "n_infections": [human_infection_lookup.shape[0]],
                                                       "n_humans_infected": [human_lookup["is_infected"].sum()],
-                                                      "n_infected_vectors": [vector_lookup.shape[0]]})], ignore_index=True)
+                                                      "n_infected_vectors": [vector_lookup.shape[0]],
+                                                      "n_unique_genotypes": get_n_unique_strains(human_infection_lookup),
+                                                      "polygenomic_fraction": polygenomic_fraction(human_infection_lookup),
+                                                      "coi": complexity_of_infection(human_infection_lookup)})], ignore_index=True)
+
+        # Save full dataframe for post hoc analysis
+        save_df = human_infection_lookup[["human_id", "genotype"]]
+        save_df["t"] = t
+        full_df = pd.concat([full_df, save_df], ignore_index=True)
 
     print(summary_statistics)
 
@@ -289,13 +333,17 @@ def main():
     plt.plot(summary_statistics["time"], summary_statistics["n_infections"], label="Number of infections")
     plt.plot(summary_statistics["time"], summary_statistics["n_humans_infected"], label="Number of infected humans")
     plt.plot(summary_statistics["time"], summary_statistics["n_infected_vectors"], label="Number of vectors")
+    plt.plot(summary_statistics["time"], summary_statistics["n_unique_genotypes"], label="Number of unique genotypes")
+    plt.plot(summary_statistics["time"], summary_statistics["polygenomic_fraction"], label="Polygenomic fraction")
     plt.legend()
     plt.show()
 
     # Save final state
+    summary_statistics.to_csv("summary_statistics.csv", index=False)
     human_lookup.to_csv("human_lookup.csv", index=False)
     vector_lookup.to_csv("vector_lookup.csv", index=False)
     human_infection_lookup.to_csv("human_infection_lookup.csv", index=False)
+    full_df.to_csv("full_df.csv", index=False)
 
 if __name__ == "__main__":
     cProfile.run('main()')
