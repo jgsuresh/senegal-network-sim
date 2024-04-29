@@ -40,14 +40,14 @@ if __name__ == "__main__":
         # allele_freqs = np.mean(all_genotypes, axis=0)
 
     # Plot allele frequencies
-    plt.figure()
-    for i in range(24):
-        plt.plot(all_data[:, i], color="black", alpha=0.1)
-    plt.xlabel("Time")
-    plt.ylabel("Allele frequency")
-    plt.title("Allele frequencies over time")
-    plt.ylim([0, 1])
-    plt.show()
+    # plt.figure()
+    # for i in range(24):
+    #     plt.plot(all_data[:, i], color="black", alpha=0.1)
+    # plt.xlabel("Time")
+    # plt.ylabel("Allele frequency")
+    # plt.title("Allele frequencies over time")
+    # plt.ylim([0, 1])
+    # plt.show()
 
     # Compute average daily differences in allele frequencies
     diffs = np.diff(all_data, axis=0)
@@ -59,7 +59,7 @@ if __name__ == "__main__":
 
     # Compute identity-by-state distance between all pairs of genotypes
 
-    all_genotypes = np.vstack(df["genotype"][df["t"]==1090].values)
+    all_genotypes = np.vstack(df["genotype"][df["t"]==1000].values)
     n = all_genotypes.shape[0]
     IBS = np.zeros([n, n])
     for i in range(n):

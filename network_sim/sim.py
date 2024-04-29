@@ -1,3 +1,6 @@
+import io
+import pstats
+
 import numpy as np
 import pandas as pd
 import cProfile
@@ -20,15 +23,30 @@ def determine_which_genotypes_mosquito_picks_up(human_id, infection_lookup):
         # If human has multiple genotypes, then simulate bites until at least 1 genotype is picked up
         prob_transmit = np.array(this_human["infectiousness"])
         at_least_one_transmits = 1-np.prod(1-np.array(prob_transmit))
-        prob_transmit_rescaled = prob_transmit/at_least_one_transmits
+        prob_transmit = prob_transmit/at_least_one_transmits
+        #
+        # while True:
+        #     # print("simulating bites")
+        #     # Simulate bites
+        #     # successes = np.random.rand(len(prob_transmit_rescaled)) < prob_transmit_rescaled
+        #     successes = np.random.rand(len(prob_transmit)) < prob_transmit
+        #     if np.sum(successes) >= 1:
+        #         return list(this_human["genotype"][successes])
 
-        while True:
-            # print("simulating bites")
-            # Simulate bites
-            successes = np.random.rand(len(prob_transmit_rescaled)) < prob_transmit_rescaled
-            if np.sum(successes) >= 1:
-                return list(this_human["genotype"][successes])
+        # GH speedup suggestion:
+        # Calculate the length of prob_transmit before the loop
+        len_prob_transmit = len(prob_transmit)
 
+        # Pre-allocate a boolean array for successes
+        successes = np.zeros(len_prob_transmit, dtype=bool)
+
+        # Continue looping until at least one success
+        while not np.any(successes):
+            # Use in-place operation to modify the successes array
+            successes[:] = np.random.rand(len_prob_transmit) < prob_transmit
+
+        # Return the successful genotypes
+        return list(this_human["genotype"][successes])
 
 
 def human_to_vector_transmission(infection_lookup, vector_lookup, biting_rates):
@@ -48,8 +66,10 @@ def human_to_vector_transmission(infection_lookup, vector_lookup, biting_rates):
         return vector_lookup
 
     # Compute aggregate infectiousness for each person
-    f = lambda x: 1 - np.prod(1 - x)
-    human_lookup['infectiousness'] = human_lookup['human_id'].map(infection_lookup.groupby('human_id')['infectiousness'].agg(f))
+    # f = lambda x: 1 - np.prod(1 - x) # This assumes all genotypes act independently, but this means that infectiousness will grow rapidly with COI
+    # f = lambda x: np.max(x)
+    # human_lookup['infectiousness'] = human_lookup['human_id'].map(infection_lookup.groupby('human_id')['infectiousness'].agg(f))
+    human_lookup['infectiousness'] = individual_infectiousness
     human_lookup["n_vectors_to_resolve"] = np.random.binomial(n=human_lookup["n_vectors_bit_and_will_survive_to_infect"],
                                                               p=human_lookup["infectiousness"])
 
@@ -60,9 +80,9 @@ def human_to_vector_transmission(infection_lookup, vector_lookup, biting_rates):
 
     # If vector always picks up all strains, then we can simply transmit all genotypes (vanilla EMOD)
     if vector_picks_up_all_strains:
-        gametocyte_genotypes = infection_lookup["genotype"][infection_lookup["human_id"].isin(human_lookup["human_id"])]
-        gametocyte_genotypes = np.repeat(gametocyte_genotypes, human_lookup["n_vectors_bit_and_will_survive_to_infect"])
-        gametocyte_genotypes = [[g] for g in gametocyte_genotypes]
+        human_lookup['infection_genotypes'] = human_lookup['human_id'].map(infection_lookup.groupby('human_id')['genotype'].apply(list))
+        gametocyte_genotypes = np.repeat(human_lookup['infection_genotypes'], human_lookup["n_vectors_to_resolve"])
+        gametocyte_genotypes = list(gametocyte_genotypes)
     else:
         # Otherwise, for humans with >1 genotype, simulate which genotypes are transmitted
         gametocyte_genotypes = []
@@ -93,40 +113,40 @@ def human_to_vector_transmission(infection_lookup, vector_lookup, biting_rates):
                 gametocyte_genotypes.extend([genotypes])
 
 
-        # Append these mosquitos to latent mosquito array
-        n_latent_vectors = len(gametocyte_genotypes)
-        vector_ids = np.arange(max_vector_id + 1, max_vector_id + 1 + n_latent_vectors)
-        days_until_next_bite = np.ones_like(vector_ids) * (11 + 1)
+    # Append these mosquitos to latent mosquito array
+    n_latent_vectors = len(gametocyte_genotypes)
+    vector_ids = np.arange(max_vector_id + 1, max_vector_id + 1 + n_latent_vectors)
+    days_until_next_bite = np.ones_like(vector_ids) * (11 + 1)
 
-        if bites_from_infected_mosquito_distribution == "constant":
-            total_bites_remaining = mean_bites_from_infected_mosquito
-        elif bites_from_infected_mosquito_distribution == "poisson":
-            total_bites_remaining = np.random.poisson(lam=mean_bites_from_infected_mosquito, size=n_latent_vectors)
-            # total_bites_remaining = np.random.randint(1,6, size=total_num_surviving_mosquitos) #fixme draw from distribution
-        else:
-            raise ValueError("Invalid bites from infected mosquito distribution")
+    if bites_from_infected_mosquito_distribution == "constant":
+        total_bites_remaining = mean_bites_from_infected_mosquito
+    elif bites_from_infected_mosquito_distribution == "poisson":
+        total_bites_remaining = np.random.poisson(lam=mean_bites_from_infected_mosquito, size=n_latent_vectors)
+        # total_bites_remaining = np.random.randint(1,6, size=total_num_surviving_mosquitos) #fixme draw from distribution
+    else:
+        raise ValueError("Invalid bites from infected mosquito distribution")
 
-        new_vector_lookup = pd.DataFrame({
-            "vector_id": vector_ids,
-            # "acquired_infection_ids": acquired_infection_ids,
-            "gametocyte_genotypes": gametocyte_genotypes,
-            # gametocyte_densities: gametocyte_densities,
-            "days_until_next_bite": days_until_next_bite,
-            "total_bites_remaining": total_bites_remaining
-        })
+    new_vector_lookup = pd.DataFrame({
+        "vector_id": vector_ids,
+        # "acquired_infection_ids": acquired_infection_ids,
+        "gametocyte_genotypes": gametocyte_genotypes,
+        # gametocyte_densities: gametocyte_densities,
+        "days_until_next_bite": days_until_next_bite,
+        "total_bites_remaining": total_bites_remaining
+    })
 
-        # vector_lookup["gametocyte_genotypes"] is a list of arrays. Check that no array is actually a nan
-        contains_nan = new_vector_lookup["gametocyte_genotypes"].apply(lambda x: np.isnan(x).any()).any()
-        if contains_nan:
-            raise ValueError("NaNs found in gametocyte genotypes.")
+    # vector_lookup["gametocyte_genotypes"] is a list of arrays. Check that no array is actually a nan
+    contains_nan = new_vector_lookup["gametocyte_genotypes"].apply(lambda x: np.isnan(x).any()).any()
+    if contains_nan:
+        raise ValueError("NaNs found in gametocyte genotypes.")
 
-        new_vector_lookup = determine_sporozoite_genotypes(new_vector_lookup)
+    new_vector_lookup = determine_sporozoite_genotypes(new_vector_lookup)
 
-        if vector_lookup.shape[0] == 0:
-            return new_vector_lookup
-        else:
-            new_vector_lookup["vector_id"] += vector_lookup["vector_id"].max() + 1
-            return pd.concat([vector_lookup, new_vector_lookup], ignore_index=True)
+    if vector_lookup.shape[0] == 0:
+        return new_vector_lookup
+    else:
+        new_vector_lookup["vector_id"] += vector_lookup["vector_id"].max() + 1
+        return pd.concat([vector_lookup, new_vector_lookup], ignore_index=True)
 
 
 def vector_to_human_transmission(infection_lookup, vector_lookup, biting_rates):
@@ -318,6 +338,7 @@ def determine_biting_rates():
     else:
         raise ValueError("Invalid daily bite rate distribution")
     return biting_rates
+
 def evolve(human_infection_lookup, vector_lookup):
     # All the things that happen in a timestep
 
@@ -325,6 +346,8 @@ def evolve(human_infection_lookup, vector_lookup):
     biting_rates = determine_biting_rates()
 
     vector_lookup = human_to_vector_transmission(human_infection_lookup, vector_lookup, biting_rates)
+    vector_lookup["n_gam_genotypes"] = vector_lookup["gametocyte_genotypes"].apply(len)
+    vector_lookup["n_spo_genotypes"] = vector_lookup["sporozoite_genotypes"].apply(len)
     human_infection_lookup = vector_to_human_transmission(human_infection_lookup, vector_lookup, biting_rates)
 
     # Timestep bookkeeping: clear infections which have completed their duration, update vector clocks
@@ -336,12 +359,12 @@ def evolve(human_infection_lookup, vector_lookup):
 
 # Set up simulation parameters
 sim_duration = 365*3
-N_individuals = 300
-N_initial_infections = 400
+N_individuals = 10000
+N_initial_infections = 4000
 individual_infection_duration = 100
 individual_infectiousness = 0.01
 infectiousness_distribution = "constant" # "exponential"
-daily_bite_rate = 0.1
+daily_bite_rate = 0.6
 daily_bite_rate_distribution = "constant" # "exponential"
 prob_survive_to_infectiousness = 1 # 0.36
 bites_from_infected_mosquito_distribution = "constant"
@@ -407,8 +430,7 @@ def main():
 
     # Loop over timesteps
     for t in range(sim_duration):
-        if t % 100 == 0:
-            print(f"Time: {t}")
+
 
         human_infection_lookup, vector_lookup = evolve(human_infection_lookup, vector_lookup)
 
@@ -419,7 +441,9 @@ def main():
                                               "n_unique_genotypes": get_n_unique_strains(human_infection_lookup),
                                               "polygenomic_fraction": polygenomic_fraction(human_infection_lookup),
                                               "coi": complexity_of_infection(human_infection_lookup)})
-        print(this_timestep_summary)
+
+        if t > 0 and t % 20 == 0:
+            print(this_timestep_summary)
 
         # Record summary statistics
         summary_statistics = pd.concat([summary_statistics, this_timestep_summary], ignore_index=True)
@@ -443,10 +467,23 @@ def main():
 
     # Save final state
     summary_statistics.to_csv("summary_statistics.csv", index=False)
-    human_lookup.to_csv("human_lookup.csv", index=False)
+    # human_lookup.to_csv("human_lookup.csv", index=False)
     vector_lookup.to_csv("vector_lookup.csv", index=False)
     human_infection_lookup.to_csv("human_infection_lookup.csv", index=False)
     full_df.to_csv("full_df.csv", index=False)
 
 if __name__ == "__main__":
-    cProfile.run('main()')
+    main()
+    # # cProfile.run('main()')
+    # pr = cProfile.Profile()
+    # pr.enable()
+    #
+    # # Replace 'main()' with the function or code you want to profile
+    # main()
+    #
+    # pr.disable()
+    # s = io.StringIO()
+    # ps = pstats.Stats(pr, stream=s).sort_stats('cumulative')
+    # ps.print_stats()
+    #
+    # print(s.getvalue())
