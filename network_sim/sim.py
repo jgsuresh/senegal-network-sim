@@ -387,13 +387,13 @@ def evolve(human_infection_lookup, vector_lookup, biting_rates=None):
 
 
 # Set up simulation parameters
-sim_duration = 1*365
-N_individuals = 100
-N_initial_infections = 40
+sim_duration = 10*365
+N_individuals = 1000
+N_initial_infections = 400
 individual_infection_duration = 100
 individual_infectiousness = 0.01
 infectiousness_distribution = "constant" # "exponential"
-daily_bite_rate = 1.1
+daily_bite_rate = 1
 daily_bite_rate_distribution = "constant" # "exponential"
 prob_survive_to_infectiousness = 1 # 0.36
 bites_from_infected_mosquito_distribution = "constant"
