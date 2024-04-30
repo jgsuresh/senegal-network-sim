@@ -1,9 +1,12 @@
 import random
 
 import numpy as np
-from numba import njit
+from line_profiler_pycharm import profile
+from numba import njit, prange
 
 import time
+
+from network_sim.numba_extras import find_unique_rows
 
 
 @njit
@@ -31,6 +34,7 @@ def meiosis(parent1_genotype, parent2_genotype):
     offspring_genotypes = [row[0] for row in np.vsplit(offspring_genotypes_matrix, 4)]
     return offspring_genotypes
 
+# @profile
 @njit
 def meiosis_numba(parent1_genotype, parent2_genotype):
     # Incredibly simple model of meiosis
@@ -47,6 +51,22 @@ def meiosis_numba(parent1_genotype, parent2_genotype):
     # Return the matrix
     return offspring_genotypes_matrix
 
+@njit(parallel=True)
+def meiosis_numba_parallel(parent1_genotype, parent2_genotype):
+    n_snps = parent1_genotype.shape[0]
+    offspring_genotypes_matrix = np.empty((4, n_snps), dtype=parent1_genotype.dtype)
+
+    for i in prange(n_snps):
+        # Fill the matrix with parent genotypes
+        offspring_genotypes_matrix[0, i] = parent1_genotype[i]
+        offspring_genotypes_matrix[1, i] = parent1_genotype[i]
+        offspring_genotypes_matrix[2, i] = parent2_genotype[i]
+        offspring_genotypes_matrix[3, i] = parent2_genotype[i]
+
+        # Shuffle the column
+        np.random.shuffle(offspring_genotypes_matrix[:, i])
+
+    return offspring_genotypes_matrix
 
 @njit
 def num_oocysts(model="fpg", min_oocysts=0):
@@ -64,7 +84,6 @@ def num_oocysts(model="fpg", min_oocysts=0):
     else:
         raise ValueError("Model not recognized.")
 
-# @jit(nopython=False)
 def gametocyte_to_oocyst_offspring_genotypes(gametocyte_genotypes, gametocyte_densities=None, num_oocyst_model="fpg"):
     # Assumes gametocytype genotypes is a list of arrays. Each element of the list is a different genotype.
     # Assumes all oocyst offspring have equal likelihood to be onwardly transmitted.
@@ -89,7 +108,8 @@ def gametocyte_to_oocyst_offspring_genotypes(gametocyte_genotypes, gametocyte_de
 
         return offspring_genotypes
 
-@njit
+# @njit
+@njit(parallel=True)
 def gametocyte_to_oocyst_offspring_genotypes_numba(gametocyte_genotypes, num_oocyst_model="fpg"):
     # Assumes gametocytype genotypes is a numpy matrix. Each row is a different genotype.
     # Assumes all oocyst offspring have equal likelihood to be onwardly transmitted.
@@ -102,16 +122,18 @@ def gametocyte_to_oocyst_offspring_genotypes_numba(gametocyte_genotypes, num_ooc
     else:
         n_oocyst = num_oocysts(model=num_oocyst_model, min_oocysts=1)
 
-        offspring_genotypes = np.zeros((n_oocyst*4, gametocyte_genotypes.shape[1]), dtype=np.int32)
+        offspring_genotypes = np.empty((n_oocyst*4, gametocyte_genotypes.shape[1]), dtype=np.int32)
 
-        for i in range(n_oocyst):
+        for i in prange(n_oocyst):
             parent_indices = np.random.randint(0, len(gametocyte_genotypes), 2)
             parent1_genotype = gametocyte_genotypes[parent_indices[0]]
             parent2_genotype = gametocyte_genotypes[parent_indices[1]]
-            offspring_genotypes[i*4:(i+1)*4] = meiosis_numba(parent1_genotype, parent2_genotype)
+            offspring_genotypes[i*4:(i+1)*4] = meiosis_numba_parallel(parent1_genotype, parent2_genotype)
+            # offspring_genotypes[i*4:(i+1)*4] = meiosis_numba(parent1_genotype, parent2_genotype)
             # offspring_genotypes[(meiosis_numba(parent1_genotype, parent2_genotype))
         return offspring_genotypes
 
+# @njit
 @njit
 def num_sporozites(model="fpg", min_sporozoites=0):
     if model=="fpg":
@@ -151,18 +173,19 @@ def gametocyte_to_sporozoite_genotypes(gametocyte_genotypes, gametocyte_densitie
         sporozoite_genotypes_without_duplicates = [row[0] for row in np.vsplit(sporozoite_genotypes_without_duplicates, sporozoite_genotypes_without_duplicates.shape[0])]
         return sporozoite_genotypes_without_duplicates
 
+# @njit
+@profile
+def gametocyte_to_sporozoite_genotypes_numba(gametocyte_genotypes):
+    oocyst_offspring_genotypes = gametocyte_to_oocyst_offspring_genotypes_numba(gametocyte_genotypes)
+    sporozoite_genotypes = oocyst_offspring_to_sporozoite_genotypes_numba(oocyst_offspring_genotypes)
 
-# def gametocyte_to_sporozoite_genotypes_numba(gametocyte_genotypes, gametocyte_densities=None):
-#     oocyst_offspring_genotypes = gametocyte_to_oocyst_offspring_genotypes(gametocyte_genotypes, gametocyte_densities)
-#     sporozoite_genotypes = oocyst_offspring_to_sporozoite_genotypes(oocyst_offspring_genotypes)
-#
-#     # Remove duplicates - #fixme Account for different likelihoods of onward transmission
-#     if len(sporozoite_genotypes) == 1:
-#         return sporozoite_genotypes
-#     else:
-#         sporozoite_genotypes_without_duplicates = np.unique(np.vstack(sporozoite_genotypes), axis=0)
-#         sporozoite_genotypes_without_duplicates = [row[0] for row in np.vsplit(sporozoite_genotypes_without_duplicates, sporozoite_genotypes_without_duplicates.shape[0])]
-#         return sporozoite_genotypes_without_duplicates
+    # Remove duplicates - #fixme Account for different likelihoods of onward transmission
+    if sporozoite_genotypes.shape[0] == 1:
+        return sporozoite_genotypes
+    else:
+        sporozoite_genotypes_without_duplicates = np.unique(sporozoite_genotypes, axis=0)
+        # sporozoite_genotypes_without_duplicates = find_unique_rows(sporozoite_genotypes)
+        return sporozoite_genotypes_without_duplicates
 
 def _explore_sporozoite_diversity(n_unique_gametocyte_genotypes=10, n_barcode_positions=15):
     # Compute number of unique genotypes in sporozoites
@@ -187,7 +210,7 @@ def _explore_sporozoite_diversity(n_unique_gametocyte_genotypes=10, n_barcode_po
     return n_unique_oocyst_genotypes, n_unique_sporozoite_genotypes
 
 
-@njit
+# @njit
 def _explore_sporozoite_diversity_numba(n_unique_gametocyte_genotypes=10, n_barcode_positions=15):
     # Compute number of unique genotypes in sporozoites
 
@@ -198,12 +221,12 @@ def _explore_sporozoite_diversity_numba(n_unique_gametocyte_genotypes=10, n_barc
     sporozoite_genotypes = oocyst_offspring_to_sporozoite_genotypes_numba(oocyst_offspring_genotypes)
 
     # Count the number of unique genotypes in oocyst offspring
-    unique_oocyst_genotypes = np.unique(oocyst_offspring_genotypes.ravel())
+    unique_oocyst_genotypes = np.unique(oocyst_offspring_genotypes, axis=0)
     n_unique_oocyst_genotypes = unique_oocyst_genotypes.shape[0]
     # print(f"Number of unique oocyst genotypes: {n_unique_oocyst_genotypes}")
 
     # Count the number of unique genotypes in sporozoites
-    unique_sporozoite_genotypes = np.unique(sporozoite_genotypes.ravel())
+    unique_sporozoite_genotypes = np.unique(sporozoite_genotypes, axis=0)
     n_unique_sporozoite_genotypes = unique_sporozoite_genotypes.shape[0]
     # print(f"Number of unique sporo genotypes: {n_unique_sporozoite_genotypes}")
     return n_unique_oocyst_genotypes, n_unique_sporozoite_genotypes
@@ -251,10 +274,10 @@ if __name__ == "__main__":
         plt.show()
 
     # Run once here to compile
-    # _explore_sporozoite_diversity_numba(n_unique_gametocyte_genotypes=5, n_barcode_positions=300)
+    _explore_sporozoite_diversity_numba(n_unique_gametocyte_genotypes=5, n_barcode_positions=300)
 
     start = time.perf_counter()
-    for i in range(10000):
+    for i in range(1000):
         _explore_sporozoite_diversity_numba(n_unique_gametocyte_genotypes=5, n_barcode_positions=300)
 
     end = time.perf_counter()
@@ -263,7 +286,7 @@ if __name__ == "__main__":
 
 
     start = time.perf_counter()
-    for i in range(10000):
+    for i in range(1000):
         _explore_sporozoite_diversity(n_unique_gametocyte_genotypes=5, n_barcode_positions=300)
 
     end = time.perf_counter()
