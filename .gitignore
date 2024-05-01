@@ -5,7 +5,6 @@
 *.json
 *.png
 *.pdf
-*.mp4
 *.zip
 *.db
 
@@ -16,6 +15,7 @@
 
 # PyCharm
 /.idea
+*.pclprof
 
 # Jupyter
 .ipynb_checkpoints

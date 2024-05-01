@@ -28,10 +28,10 @@ def get_n_unique_strains(human_infection_lookup):
     n_unique_genotypes = unique_genotypes.shape[0]
     return n_unique_genotypes
 
-def complexity_of_infection(human_infection_lookup):
+def complexity_of_infection(genotype_df):
     # Get average number of genotypes per infected individual
-    n_genotypes = human_infection_lookup.groupby("human_id").agg({"genotype": lambda x: len(x)}).reset_index()
-    return n_genotypes["genotype"].mean()
+    coi = genotype_df.groupby(["human_id", "t"]).size().reset_index(name="coi")
+    return coi.groupby("t").agg({"coi": "mean"})
 
 def polygenomic_fraction(human_infection_lookup):
     # Get fraction of infected individuals who have >1 unique genotype
@@ -61,6 +61,28 @@ def ibs(all_genotypes):
                 IBS[i,j] = np.nan
     return np.nanmean(IBS)
 
+def strain_persistence(genotype_df):
+    # Get distribution of number of timesteps each strain is present
+    strain_presence = genotype_df.groupby([f"SNP_{i}" for i in range(24)]).agg({"t": lambda x: np.max(x)-np.min(x)}).reset_index()
+    return strain_presence["t"].values
+
+def polygenomic_relatedness(genotype_df):
+    # Get relatedness of genotypes within each individual with polygenomic infections
+
+    # Get COI of each individual at each timepoint
+    coi = genotype_df.groupby(["human_id", "t"]).size().reset_index(name="coi")
+    polygenomic = coi[coi["coi"] > 1]
+    # Limit genotype_df to only polygenomic infections for each person at each timepoint
+    genotype_df = genotype_df.merge(polygenomic, on=["human_id", "t"], how="inner")
+
+    # Calculate IBS for each individual
+    relatedness = genotype_df.groupby(["human_id","t"])["genotype"].apply(lambda x: np.vstack(x)).apply(ibs).reset_index(name="polygenomic_ibs")
+
+    # Add COI to the relatedness dataframe
+    relatedness = relatedness.merge(coi, on=["human_id", "t"], how="left")
+    return relatedness
+
+
 if __name__ == "__main__":
     df = pd.read_csv("full_df.csv")
 
@@ -87,13 +109,14 @@ if __name__ == "__main__":
 
     # Plot allele frequencies
     # if False:
-    plt.figure()
+    plt.figure(figsize=(10,10), dpi=300)
     for i in range(24):
         plt.plot(all_data[:, i], color="black", alpha=0.2)
     plt.xlabel("Time")
     plt.ylabel("Allele frequency")
     plt.title("Allele frequencies over time")
     plt.ylim([0, 1])
+    plt.savefig("allele_freqs.png")
     plt.show()
 
     # Compute average daily differences in allele frequencies
@@ -106,21 +129,36 @@ if __name__ == "__main__":
 
     # Compute identity-by-state distance between all pairs of genotypes
 
-    # Calculate IBS at each timestep
-    all_IBS = np.zeros(df["t"].nunique())
+    # if False:
+    # Calculate IBS every 20 timesteps
+    all_IBS = np.array([])
+    t_plot = np.array([])
     for t in df["t"].unique():
-        print(t)
-        all_genotypes = np.vstack(df["genotype"][df["t"]==t].values)
-        all_IBS[t] = ibs(all_genotypes)
+        if t % 20 == 0:
+            print(t)
+            t_plot = np.append(t_plot, t)
+            all_genotypes = np.vstack(df["genotype"][df["t"]==t].values)
+            all_IBS = np.append(all_IBS, ibs(all_genotypes))
 
     # Plot IBS over time
-    plt.figure()
+    plt.figure(figsize=(10,10), dpi=300)
     plt.plot(all_IBS)
     plt.xlabel("Time")
     plt.ylabel("Mean IBS")
     plt.title("Identity-by-state distance over time")
+    plt.savefig("ibs.png")
     plt.show()
-    #
+
+    # Plot COI distribution at arbitrary time
+    t = 1000
+    n_genotypes = df[df["t"]==t].groupby("human_id").agg({"genotype": lambda x: len(x)}).reset_index()
+    plt.figure()
+    plt.hist(n_genotypes["genotype"], bins=range(1, 20), density=True)
+    plt.xlabel("Number of genotypes")
+    plt.savefig("coi.png")
+    plt.show()
+
+
     # all_genotypes = np.vstack(df["genotype"][df["t"]==1000].values)
     # n = all_genotypes.shape[0]
     # IBS = np.zeros([n, n])
