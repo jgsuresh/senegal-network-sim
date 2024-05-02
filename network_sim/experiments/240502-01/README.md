@@ -1,0 +1,1 @@
+Same setup as 240501-03, but with constant infection duration rather than Weibull

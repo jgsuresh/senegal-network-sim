@@ -2,10 +2,15 @@ import io
 import pstats
 import time
 
+from scipy.special import gamma
+
 from line_profiler_pycharm import profile
 
 import numpy as np
 import pandas as pd
+
+from network_sim.vector_heterogeneity import draw_infectious_bite_number
+
 pd.options.mode.chained_assignment = None  # default='warn'
 import cProfile
 
@@ -151,13 +156,7 @@ def human_to_vector_transmission(infection_lookup,
     vector_ids = np.arange(max_vector_id + 1, max_vector_id + 1 + n_latent_vectors)
     days_until_next_bite = np.ones_like(vector_ids) * (11 + 1)
 
-    if bites_from_infected_mosquito_distribution == "constant":
-        total_bites_remaining = mean_bites_from_infected_mosquito
-    elif bites_from_infected_mosquito_distribution == "poisson":
-        total_bites_remaining = np.random.poisson(lam=mean_bites_from_infected_mosquito, size=n_latent_vectors)
-        # total_bites_remaining = np.random.randint(1,6, size=total_num_surviving_mosquitos) #fixme draw from distribution
-    else:
-        raise ValueError("Invalid bites from infected mosquito distribution")
+    total_bites_remaining = draw_infectious_bite_number(n_latent_vectors, kwargs)
 
     new_vector_lookup = pd.DataFrame({
         "vector_id": vector_ids,
@@ -180,6 +179,23 @@ def human_to_vector_transmission(infection_lookup,
         new_vector_lookup["vector_id"] += vector_lookup["vector_id"].max() + 1
         return pd.concat([vector_lookup, new_vector_lookup], ignore_index=True)
 
+# def initialize_new_human_infections(n_new_infections, run_parameters):
+#     # Determine infection durations and infectiousness
+
+def draw_infection_durations(N, run_parameters):
+    distribution = run_parameters.get("infection_duration_distribution", "constant")
+    mean_duration = run_parameters.get("individual_infection_duration")
+
+    if distribution == "constant":
+        return np.ones(N) * mean_duration
+    elif distribution == "exponential":
+        return (np.random.exponential(scale=mean_duration, size=N)).astype(np.int64)
+    elif distribution == "weibull":
+        shape = run_parameters.get("weibull_infection_duration_shape", 2.2)
+        # Calculate the scale parameter for the Weibull distribution
+        scale = mean_duration / gamma(1 + 1 / shape)
+        # Generate a sample from the Weibull distribution
+        return (np.random.weibull(shape, N) * scale).astype(np.int64)
 
 @profile
 def vector_to_human_transmission(infection_lookup,
@@ -188,6 +204,7 @@ def vector_to_human_transmission(infection_lookup,
                                  **kwargs):
     human_ids = kwargs.get('human_ids')
     individual_infectiousness = kwargs.get("individual_infectiousness")
+    infection_duration_distribution = kwargs.get("infection_duration_distribution", "constant")
     individual_infection_duration = kwargs.get("individual_infection_duration")
     infectiousness_distribution = kwargs.get("infectiousness_distribution")
 
@@ -220,6 +237,7 @@ def vector_to_human_transmission(infection_lookup,
             # Rename columns and keep only relevant ones
             new_infections = (new_infections[["human_id", "sporozoite_genotypes"]].
                               rename(columns={"sporozoite_genotypes": "genotype"}))
+            N_new_infections = new_infections.shape[0]
 
             # Add infectiousness information
             if infectiousness_distribution == "constant":
@@ -231,7 +249,8 @@ def vector_to_human_transmission(infection_lookup,
             new_infections["infectiousness"] = infectiousness
 
             # Add infection duration information
-            new_infections["days_until_clearance"] = individual_infection_duration + 1 #fixme draw from distribution
+            # new_infections["days_until_clearance"] = individual_infection_duration + 1 #fixme draw from distribution
+            new_infections["days_until_clearance"] = draw_infection_durations(N_new_infections, kwargs)
 
             # Add infection id
             max_inf_id = infection_lookup["infection_id"].max()
@@ -339,8 +358,7 @@ def evolve(human_infection_lookup,
         biting_rates = determine_biting_rates()
 
     vector_lookup = human_to_vector_transmission(human_infection_lookup, vector_lookup, biting_rates, **run_parameters)
-    vector_lookup["n_gam_genotypes"] = vector_lookup["gametocyte_genotypes"].apply(len)
-    vector_lookup["n_spo_genotypes"] = vector_lookup["sporozoite_genotypes"].apply(len)
+    # vector_lookup["n_spo_genotypes"] = vector_lookup["sporozoite_genotypes"].apply(len)
     human_infection_lookup = vector_to_human_transmission(human_infection_lookup, vector_lookup, biting_rates, **run_parameters)
 
     # Timestep bookkeeping: clear infections which have completed their duration, update vector clocks
@@ -348,31 +366,13 @@ def evolve(human_infection_lookup,
     return human_infection_lookup, vector_lookup
 
 
-
-
-
-@profile
-def run_sim(run_parameters, verbose=True):
-
-    if verbose:
-        print(run_parameters)
-
-    sim_duration = run_parameters["sim_duration"]
-    N_individuals = run_parameters["N_individuals"]
+def initial_setup(run_parameters):
     N_initial_infections = run_parameters["N_initial_infections"]
     individual_infection_duration = run_parameters["individual_infection_duration"]
     individual_infectiousness = run_parameters["individual_infectiousness"]
     infectiousness_distribution = run_parameters["infectiousness_distribution"]
-    daily_bite_rate = run_parameters["daily_bite_rate"]
-    daily_bite_rate_distribution = run_parameters["daily_bite_rate_distribution"]
-    # prob_survive_to_infectiousness = run_parameters["prob_survive_to_infectiousness"]
-    # bites_from_infected_mosquito_distribution = run_parameters["bites_from_infected_mosquito_distribution"]
-    # mean_bites_from_infected_mosquito = run_parameters["mean_bites_from_infected_mosquito"]
+    human_ids = run_parameters["human_ids"]
     N_barcode_positions = run_parameters["N_barcode_positions"]
-#     vector_picks_up_all_strains = run_parameters["vector_picks_up_all_strains"]
-
-    human_ids = np.arange(N_individuals)
-    run_parameters["human_ids"] = human_ids
 
     # Generate initial infections
     infection_ids = np.arange(N_initial_infections)
@@ -390,7 +390,6 @@ def run_sim(run_parameters, verbose=True):
                                            "human_id": np.random.choice(human_ids, N_initial_infections, replace=True),
                                            "infectiousness": infectiousness,
                                            "days_until_clearance": np.random.randint(1, individual_infection_duration+1, N_initial_infections)})
-    max_infection_id = get_max_infection_id(human_infection_lookup)
 
     all_genotype_matrix = np.random.binomial(n=1, p=0.5, size=(N_initial_infections, N_barcode_positions)) #fixme Allow for locus-specific allele frequencies
     human_infection_lookup["genotype"] = [row[0] for row in np.vsplit(all_genotype_matrix, N_initial_infections)]
@@ -400,7 +399,25 @@ def run_sim(run_parameters, verbose=True):
                                   "gametocyte_genotypes": [],
                                   "sporozoite_genotypes": [],
                                   "days_until_next_bite": []})
-    max_vector_id = vector_lookup["vector_id"].max()
+    return human_infection_lookup, vector_lookup
+
+
+@profile
+def run_sim(run_parameters, verbose=True, save_full_df=True):
+
+    if verbose:
+        print(run_parameters)
+
+    sim_duration = run_parameters["sim_duration"]
+    N_individuals = run_parameters["N_individuals"]
+    daily_bite_rate = run_parameters["daily_bite_rate"]
+    daily_bite_rate_distribution = run_parameters["daily_bite_rate_distribution"]
+
+    human_ids = np.arange(N_individuals)
+    run_parameters["human_ids"] = human_ids
+
+    # Set up initial conditions
+    human_infection_lookup, vector_lookup = initial_setup(run_parameters)
 
     # Set up summary statistics
     summary_statistics = pd.DataFrame({"time": [],
@@ -424,7 +441,6 @@ def run_sim(run_parameters, verbose=True):
 
     # Loop over timesteps
     for t in range(sim_duration):
-
         human_infection_lookup, vector_lookup = evolve(human_infection_lookup, vector_lookup, biting_rates=biting_rates, run_parameters=run_parameters)
 
         this_timestep_summary = pd.DataFrame({"time": [t+1],
@@ -436,6 +452,7 @@ def run_sim(run_parameters, verbose=True):
                                               # "coi": complexity_of_infection(human_infection_lookup)})
 
         if t > 0 and t % 20 == 0 and verbose:
+            pd.set_option('display.max_columns', 10)
             print(this_timestep_summary)
 
         # Record summary statistics
@@ -465,7 +482,8 @@ def run_sim(run_parameters, verbose=True):
     vector_lookup.to_csv("vector_lookup.csv", index=False)
     human_infection_lookup.to_csv("human_infection_lookup.csv", index=False)
     # full_df.to_csv("full_df.csv", index=False)
-    save_genotypes(full_df, "full_df.csv")
+    if save_full_df:
+        save_genotypes(full_df, "full_df.csv")
 
 
 if __name__ == "__main__":

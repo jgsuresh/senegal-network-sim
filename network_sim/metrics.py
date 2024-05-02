@@ -83,16 +83,93 @@ def polygenomic_relatedness(genotype_df):
     return relatedness
 
 
-if __name__ == "__main__":
+def compute_standard_metrics():
     df = pd.read_csv("full_df.csv")
-
     all_genomes = df[[f"SNP_{i}" for i in range(24)]].values
     df["genotype"] = all_genomes.tolist()
 
-    # Compute allele frequency at each SNP location at each timestep
-    allele_freqs = df.groupby("t").apply(allele_frequencies)
+    # Loop over each timestep and calculate allele frequencies:
+    all_data = np.zeros([df["t"].nunique(), 24])
+    for t, sdf in df.groupby("t"):
+        all_data[t] = np.mean(np.vstack(sdf["genotype"].values), axis=0)
 
-    pass
+    # Plot allele frequencies
+    plt.figure(figsize=(10,10), dpi=300)
+    for i in range(24):
+        plt.plot(all_data[:, i], color="black", alpha=0.2)
+    plt.xlabel("Time")
+    plt.ylabel("Allele frequency")
+    plt.title("Allele frequencies over time")
+    plt.ylim([0, 1])
+    plt.savefig("allele_freqs.png")
+
+    # Compute identity-by-state distance between all pairs of genotypes
+    all_IBS = np.array([])
+    t_plot = np.array([])
+    for t in df["t"].unique():
+        if t % 20 == 0: # Only calculate IBS every 20 timesteps
+            print(t)
+            t_plot = np.append(t_plot, t)
+            all_genotypes = np.vstack(df["genotype"][df["t"]==t].values)
+            all_IBS = np.append(all_IBS, ibs(all_genotypes))
+
+    # Plot IBS over time
+    plt.figure(figsize=(10,10), dpi=300)
+    plt.plot(t_plot, all_IBS)
+    plt.xlabel("Time")
+    plt.ylabel("Mean IBS")
+    plt.title("Identity-by-state distance over time")
+    plt.savefig("ibs.png")
+
+    # Plot COI distribution at arbitrary time
+    t = 1000
+    n_genotypes = df[df["t"]==t].groupby("human_id").agg({"genotype": lambda x: len(x)}).reset_index()
+    plt.figure()
+    plt.hist(n_genotypes["genotype"], bins=range(1, 20), density=True)
+    plt.xlabel("Number of genotypes")
+    plt.title("COI distribution at time 1000")
+    plt.savefig("coi.png")
+
+def visualize_allele_freq_differences():
+    df = pd.read_csv("full_df.csv")
+    all_genomes = df[[f"SNP_{i}" for i in range(24)]].values
+    df["genotype"] = all_genomes.tolist()
+
+    # Loop over each timestep and calculate allele frequencies:
+    all_data = np.zeros([df["t"].nunique(), 24])
+    for t, sdf in df.groupby("t"):
+        all_data[t] = np.mean(np.vstack(sdf["genotype"].values), axis=0)
+
+    # Compute average fractional differences in allele frequencies
+    diffs = np.abs(np.diff(all_data, axis=0))/all_data[:-1]
+
+    # Bin by every 20 timesteps
+    tstep = 100
+    diffs = diffs[::tstep]
+
+    # Plot allele frequency differences, binned by every 20 timesteps, and averaged over all SNPs
+    t_binned = np.arange(0, diffs.shape[0]*tstep, tstep)
+    diffs_plot = np.mean(diffs, axis=1)
+    diffs_plot_std = np.std(diffs, axis=1)
+    plt.figure(figsize=(10,10), dpi=300)
+    # for i in range(24):
+    plt.plot(t_binned, diffs_plot, color="black", alpha=0.2)
+    plt.fill_between(t_binned, diffs_plot-diffs_plot_std, diffs_plot+diffs_plot_std, color="black", alpha=0.2)
+    plt.xlabel("Time")
+    plt.ylim([0,0.02])
+    plt.ylabel("Allele fractional frequency difference")
+    plt.title("Allele frequency differences over time")
+
+    # Print mean daily difference
+    mean_daily_diff = np.mean(diffs)
+    print(f"Mean {tstep}-day difference in allele frequencies: ", mean_daily_diff)
+    plt.axhline(mean_daily_diff, color="red", linestyle="--")
+
+    # plt.show()
+    plt.savefig("allele_freq_diffs.png")
+
+
+
 
 if __name__ == "__main__":
     df = pd.read_csv("full_df.csv")

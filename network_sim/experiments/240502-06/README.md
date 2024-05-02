@@ -1,0 +1,1 @@
+Same as 240502-04 (emod biting), but increased biting rate to try to get closer to the 240502-05 comparison run
