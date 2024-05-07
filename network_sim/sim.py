@@ -77,6 +77,7 @@ def human_to_vector_transmission(infection_lookup,
     vector_picks_up_all_strains = kwargs.get("vector_picks_up_all_strains", True)
     bites_from_infected_mosquito_distribution = kwargs.get("bites_from_infected_mosquito_distribution", "constant")
     mean_bites_from_infected_mosquito = kwargs.get("mean_bites_from_infected_mosquito", 1)
+    track_roots = kwargs.get("track_roots", False)
 
     #todo Potential speedup, start with only infected people
 
@@ -120,6 +121,11 @@ def human_to_vector_transmission(infection_lookup,
         human_lookup['infection_genotypes'] = human_lookup['human_id'].map(infection_lookup.groupby('human_id')['genotype'].apply(list))
         gametocyte_genotypes = np.repeat(human_lookup['infection_genotypes'], human_lookup["n_vectors_to_resolve"])
         gametocyte_genotypes = list(gametocyte_genotypes)
+
+        if track_roots:
+            human_lookup['infection_roots'] = human_lookup['human_id'].map(infection_lookup.groupby('human_id')['roots'].apply(list))
+            gametocyte_roots = np.repeat(human_lookup['infection_roots'], human_lookup["n_vectors_to_resolve"])
+            gametocyte_roots = list(gametocyte_roots)
     else:
         # Otherwise, for humans with >1 genotype, simulate which genotypes are transmitted
         gametocyte_genotypes = []
@@ -379,6 +385,7 @@ def initial_setup(run_parameters):
     N_barcode_positions = run_parameters["N_barcode_positions"]
     demographics_on = run_parameters.get("demographics_on", False)
     age_modifies_infectiousness = run_parameters.get("age_modifies_infectiousness", False)
+    track_roots = run_parameters.get("track_roots", False)
 
     # Generate initial infections
     infection_ids = np.arange(N_initial_infections)
@@ -401,15 +408,23 @@ def initial_setup(run_parameters):
         # Infectiousness modified based on age
         modify_human_infection_lookup_by_age(human_infection_lookup, human_ids, run_parameters["human_ages"])
 
-
     all_genotype_matrix = np.random.binomial(n=1, p=0.5, size=(N_initial_infections, N_barcode_positions)) #fixme Allow for locus-specific allele frequencies
     human_infection_lookup["genotype"] = [row[0] for row in np.vsplit(all_genotype_matrix, N_initial_infections)]
+
+    # If tracking roots, then all initial infections are roots
+    if track_roots:
+        # Generate a matrix where every row is a genotype, and each entry of the row is the ID of the root infection
+        all_roots_matrix = np.arange(N_initial_infections).repeat(N_barcode_positions).reshape(N_initial_infections, N_barcode_positions)
+        human_infection_lookup["roots"] = [row[0] for row in np.vsplit(all_roots_matrix, N_initial_infections)]
 
     # Generate vector lookup
     vector_lookup = pd.DataFrame({"vector_id": [],
                                   "gametocyte_genotypes": [],
                                   "sporozoite_genotypes": [],
                                   "days_until_next_bite": []})
+    if track_roots:
+        vector_lookup["gametocyte_roots"] = []
+        vector_lookup["sporozoite_roots"] = []
     return human_infection_lookup, vector_lookup
 
 
@@ -426,6 +441,7 @@ def run_sim(run_parameters, verbose=True):
     demographics_on = run_parameters.get("demographics_on", False)
     save_all_data = run_parameters.get("save_all_data", True)
     timesteps_between_outputs = run_parameters.get("timesteps_between_outputs", 1)
+    track_roots = run_parameters.get("track_roots", False)
 
 
     human_ids = np.arange(N_individuals)
@@ -437,6 +453,12 @@ def run_sim(run_parameters, verbose=True):
 
     # Set up initial conditions
     human_infection_lookup, vector_lookup = initial_setup(run_parameters)
+
+    if track_roots:
+        pass
+        # All initial infections are roots
+    #     root_lookup = human_infection_lookup[["human_id", "genotype"]].copy()
+    #     root_lookup["root_id"] = np.arange(root_lookup.shape[0])
 
     # Set up summary statistics
     summary_statistics = pd.DataFrame({"time": [],
