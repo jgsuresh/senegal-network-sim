@@ -9,7 +9,10 @@ from line_profiler_pycharm import profile
 import numpy as np
 import pandas as pd
 
-from network_sim.vector_heterogeneity import draw_infectious_bite_number
+from network_sim.host_heterogeneity import age_based_infectiousness_factor, draw_individual_ages, \
+    modify_human_infection_lookup_by_age
+from network_sim.vector_heterogeneity import age_based_biting_risk, draw_infectious_bite_number, \
+    heterogeneous_biting_risk
 
 pd.options.mode.chained_assignment = None  # default='warn'
 import cProfile
@@ -197,6 +200,7 @@ def draw_infection_durations(N, run_parameters):
         # Generate a sample from the Weibull distribution
         return (np.random.weibull(shape, N) * scale).astype(np.int64)
 
+
 @profile
 def vector_to_human_transmission(infection_lookup,
                                  vector_lookup,
@@ -207,6 +211,8 @@ def vector_to_human_transmission(infection_lookup,
     infection_duration_distribution = kwargs.get("infection_duration_distribution", "constant")
     individual_infection_duration = kwargs.get("individual_infection_duration")
     infectiousness_distribution = kwargs.get("infectiousness_distribution")
+    demographics_on = kwargs.get("demographics_on", False)
+    age_modifies_infectiousness = kwargs.get("age_modifies_infectiousness", False)
 
 
     if vector_lookup.shape[0] == 0:
@@ -247,6 +253,10 @@ def vector_to_human_transmission(infection_lookup,
             else:
                 raise ValueError("Invalid infectiousness distribution")
             new_infections["infectiousness"] = infectiousness
+
+            # If demographics are on, modify infectiousness based on age
+            if demographics_on and age_modifies_infectiousness:
+                modify_human_infection_lookup_by_age(new_infections, human_ids, kwargs['human_ages'])
 
             # Add infection duration information
             # new_infections["days_until_clearance"] = individual_infection_duration + 1 #fixme draw from distribution
@@ -333,29 +343,23 @@ def get_max_infection_id(infection_lookup):
     else:
         return infection_lookup["infection_id"].max()
 
-@jit(nopython=True)
-def determine_biting_rates(N_individuals, daily_bite_rate_distribution, daily_bite_rate):
-    # Determine today's biting rates
-    if daily_bite_rate_distribution == "exponential":
-        biting_rates = np.random.exponential(scale=daily_bite_rate, size=N_individuals)
-    elif daily_bite_rate_distribution == "constant":
-        biting_rates = np.ones(N_individuals) * daily_bite_rate
-    else:
-        raise ValueError("Invalid daily bite rate distribution")
-    return biting_rates
+
+def determine_biting_rates(N_individuals, run_parameters):
+    daily_bite_rate = run_parameters["daily_bite_rate"]
+
+    abr = age_based_biting_risk(N_individuals, run_parameters)
+    hbr = heterogeneous_biting_risk(N_individuals, run_parameters)
+
+    return np.ones(N_individuals) * daily_bite_rate * abr * hbr
 
 # @jit(forceobj=True)
 @profile
 def evolve(human_infection_lookup,
            vector_lookup,
            run_parameters,
-           biting_rates=None,
+           biting_rates,
            ):
     # All the things that happen in a timestep
-
-    # Determine today's biting rates
-    if biting_rates is None:
-        biting_rates = determine_biting_rates()
 
     vector_lookup = human_to_vector_transmission(human_infection_lookup, vector_lookup, biting_rates, **run_parameters)
     # vector_lookup["n_spo_genotypes"] = vector_lookup["sporozoite_genotypes"].apply(len)
@@ -373,6 +377,8 @@ def initial_setup(run_parameters):
     infectiousness_distribution = run_parameters["infectiousness_distribution"]
     human_ids = run_parameters["human_ids"]
     N_barcode_positions = run_parameters["N_barcode_positions"]
+    demographics_on = run_parameters.get("demographics_on", False)
+    age_modifies_infectiousness = run_parameters.get("age_modifies_infectiousness", False)
 
     # Generate initial infections
     infection_ids = np.arange(N_initial_infections)
@@ -391,6 +397,11 @@ def initial_setup(run_parameters):
                                            "infectiousness": infectiousness,
                                            "days_until_clearance": np.random.randint(1, individual_infection_duration+1, N_initial_infections)})
 
+    if demographics_on and age_modifies_infectiousness:
+        # Infectiousness modified based on age
+        modify_human_infection_lookup_by_age(human_infection_lookup, human_ids, run_parameters["human_ages"])
+
+
     all_genotype_matrix = np.random.binomial(n=1, p=0.5, size=(N_initial_infections, N_barcode_positions)) #fixme Allow for locus-specific allele frequencies
     human_infection_lookup["genotype"] = [row[0] for row in np.vsplit(all_genotype_matrix, N_initial_infections)]
 
@@ -403,7 +414,7 @@ def initial_setup(run_parameters):
 
 
 @profile
-def run_sim(run_parameters, verbose=True, save_full_df=True):
+def run_sim(run_parameters, verbose=True):
 
     if verbose:
         print(run_parameters)
@@ -412,9 +423,17 @@ def run_sim(run_parameters, verbose=True, save_full_df=True):
     N_individuals = run_parameters["N_individuals"]
     daily_bite_rate = run_parameters["daily_bite_rate"]
     daily_bite_rate_distribution = run_parameters["daily_bite_rate_distribution"]
+    demographics_on = run_parameters.get("demographics_on", False)
+    save_all_data = run_parameters.get("save_all_data", True)
+    timesteps_between_outputs = run_parameters.get("timesteps_between_outputs", 1)
+
 
     human_ids = np.arange(N_individuals)
     run_parameters["human_ids"] = human_ids
+    if demographics_on:
+        if verbose:
+            print("Demographics are on! Drawing individual ages.")
+        run_parameters["human_ages"] = draw_individual_ages(N_individuals)
 
     # Set up initial conditions
     human_infection_lookup, vector_lookup = initial_setup(run_parameters)
@@ -432,12 +451,10 @@ def run_sim(run_parameters, verbose=True, save_full_df=True):
     # Set up full dataframe for post hoc analysis
     full_df = human_infection_lookup[["human_id", "genotype"]]
     full_df["t"] = 0
+    timesteps_to_save = np.arange(0, sim_duration, timesteps_between_outputs)
 
-
-    if daily_bite_rate_distribution == "constant":
-        biting_rates = np.ones(N_individuals) * daily_bite_rate
-    else:
-        biting_rates = None
+    #Note: currently assumes that relative biting rates are constant for each person across the simulation.
+    biting_rates = determine_biting_rates(N_individuals, run_parameters)
 
     # Loop over timesteps
     for t in range(sim_duration):
@@ -459,10 +476,10 @@ def run_sim(run_parameters, verbose=True, save_full_df=True):
         summary_statistics = pd.concat([summary_statistics, this_timestep_summary], ignore_index=True)
 
 
-        # Save full dataframe for post hoc analysis
-        save_df = human_infection_lookup[["human_id", "genotype"]]
-        save_df["t"] = t
-        full_df = pd.concat([full_df, save_df], ignore_index=True)
+        if save_all_data and t in timesteps_to_save:
+            save_df = human_infection_lookup[["human_id", "genotype"]]
+            save_df["t"] = t
+            full_df = pd.concat([full_df, save_df], ignore_index=True)
 
     if verbose:
         print(summary_statistics)
@@ -482,8 +499,13 @@ def run_sim(run_parameters, verbose=True, save_full_df=True):
     vector_lookup.to_csv("vector_lookup.csv", index=False)
     human_infection_lookup.to_csv("human_infection_lookup.csv", index=False)
     # full_df.to_csv("full_df.csv", index=False)
-    if save_full_df:
-        save_genotypes(full_df, "full_df.csv")
+    save_genotypes(full_df, "full_df.csv")
+
+    # Save info about humans
+    human_info = pd.DataFrame({"human_id": human_ids,
+                               "ages": run_parameters.get("human_ages", None),
+                               "bite_rates": biting_rates})
+    human_info.to_csv("human_info.csv", index=False)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,1 @@
+Same as 240506-01 (heterogeneous biting, age-based biting) but with 10x lower average biting. Curious about COI distribution here.

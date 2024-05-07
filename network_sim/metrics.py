@@ -84,30 +84,42 @@ def polygenomic_relatedness(genotype_df):
 
 
 def compute_standard_metrics():
-    df = pd.read_csv("full_df.csv")
+    # Try to save space:
+    dtype = {f"SNP_{i}": np.int8 for i in range(24)}
+    dtype["human_id"] = np.int16
+
+    print("Loading data...")
+    df = pd.read_csv("full_df.csv", dtype=dtype)
     all_genomes = df[[f"SNP_{i}" for i in range(24)]].values
     df["genotype"] = all_genomes.tolist()
 
+    print("Calculating allele frequencies...")
     # Loop over each timestep and calculate allele frequencies:
     all_data = np.zeros([df["t"].nunique(), 24])
+    i=0
+    t_plot = np.array([])
     for t, sdf in df.groupby("t"):
-        all_data[t] = np.mean(np.vstack(sdf["genotype"].values), axis=0)
+        all_data[i] = np.mean(np.vstack(sdf["genotype"].values), axis=0)
+        t_plot = np.append(t_plot, t)
+        i+=1
 
     # Plot allele frequencies
     plt.figure(figsize=(10,10), dpi=300)
     for i in range(24):
-        plt.plot(all_data[:, i], color="black", alpha=0.2)
+        plt.plot(t_plot,all_data[:, i], color="black", alpha=0.2)
     plt.xlabel("Time")
     plt.ylabel("Allele frequency")
     plt.title("Allele frequencies over time")
     plt.ylim([0, 1])
     plt.savefig("allele_freqs.png")
 
+    print("Calculating IBS...")
     # Compute identity-by-state distance between all pairs of genotypes
     all_IBS = np.array([])
     t_plot = np.array([])
+    tstep = 50
     for t in df["t"].unique():
-        if t % 20 == 0: # Only calculate IBS every 20 timesteps
+        if t % tstep == 0: # Only calculate IBS every tstep timesteps
             print(t)
             t_plot = np.append(t_plot, t)
             all_genotypes = np.vstack(df["genotype"][df["t"]==t].values)
@@ -121,14 +133,16 @@ def compute_standard_metrics():
     plt.title("Identity-by-state distance over time")
     plt.savefig("ibs.png")
 
+    print("Plotting COI...")
     # Plot COI distribution at arbitrary time
-    t = 1000
+    t = 1400
     n_genotypes = df[df["t"]==t].groupby("human_id").agg({"genotype": lambda x: len(x)}).reset_index()
     plt.figure()
     plt.hist(n_genotypes["genotype"], bins=range(1, 20), density=True)
     plt.xlabel("Number of genotypes")
     plt.title("COI distribution at time 1000")
     plt.savefig("coi.png")
+    pass
 
 def visualize_allele_freq_differences():
     df = pd.read_csv("full_df.csv")
@@ -227,14 +241,14 @@ if __name__ == "__main__":
     plt.show()
 
     # Plot COI distribution at arbitrary time
-    t = 1000
+    t = 1450
     n_genotypes = df[df["t"]==t].groupby("human_id").agg({"genotype": lambda x: len(x)}).reset_index()
     plt.figure()
     plt.hist(n_genotypes["genotype"], bins=range(1, 20), density=True)
     plt.xlabel("Number of genotypes")
     plt.savefig("coi.png")
     plt.show()
-
+    pass
 
     # all_genotypes = np.vstack(df["genotype"][df["t"]==1000].values)
     # n = all_genotypes.shape[0]

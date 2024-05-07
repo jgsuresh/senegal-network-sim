@@ -1,0 +1,1 @@
+Same as 240502-05 (uniform biting), but now allowing vector to draw from all host infections

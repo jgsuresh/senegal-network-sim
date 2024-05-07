@@ -1,0 +1,1 @@
+Same as 240502-05 (uniform biting), but now with heterogeneous biting risk to see how much this changes the results.

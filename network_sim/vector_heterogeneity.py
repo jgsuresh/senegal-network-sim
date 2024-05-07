@@ -1,4 +1,5 @@
 import numpy as np
+from numba import njit, vectorize
 
 
 def draw_infectious_bite_number(N_vectors, run_parameters):
@@ -61,7 +62,47 @@ def biting_with_aging(N):
     # Introduce aging so probability of higher number of bites decreases
     raise NotImplementedError
 
-def estimate_eir():
+
+def heterogeneous_biting_risk(N_humans, run_parameters):
+    # Return relative biting risk compared to population average
+
+    daily_bite_rate_distribution = run_parameters["daily_bite_rate_distribution"]
+
+    if daily_bite_rate_distribution == "constant":
+        return np.ones(N_humans)
+    elif daily_bite_rate_distribution == "exponential":
+        return np.random.exponential(scale=1, size=N_humans)
+    else:
+        raise NotImplementedError
+
+def age_based_biting_risk(N_humans, run_parameters):
+    demographics_on = run_parameters.get("demographics_on", False)
+    age_modifies_biting_risk = run_parameters.get("age_modifies_biting_risk", False)
+
+    if not demographics_on or not age_modifies_biting_risk:
+        return np.ones(N_humans)
+    else:
+        human_ages = run_parameters["human_ages"]
+        # Apply age_based_surface_area to each element of the array human_ages
+        return age_based_surface_area(human_ages)
+
+@vectorize
+def age_based_surface_area(age_in_years):
+    # piecewise linear rising from birth to age 2
+    # and then shallower slope to age 20
+    newborn_risk = 0.07
+    two_year_old_risk = 0.23
+    if age_in_years < 2:
+        return newborn_risk + age_in_years * (two_year_old_risk - newborn_risk) / 2
+
+    if age_in_years < 20:
+        return two_year_old_risk + (age_in_years - 2) * (1 - two_year_old_risk) / ((20 - 2))
+
+    return 1.
+
+
+
+def _estimate_eir():
     # Estimate the entomological inoculation rate (EIR) from the number of infectious bites
     # Simulate for 100 days, with fixed human population for simplicity
 

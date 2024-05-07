@@ -12,14 +12,14 @@ if __name__ == "__main__":
     # Load parameters
     parameters = load_parameters("config.yaml")
 
-    # Run simulation
+    # # Run simulation
     start = time.perf_counter()
     run_sim(parameters)
     end = time.perf_counter()
-    logging.info("Time taken for sim: ", end - start, " seconds")
+    print("Time taken for sim: ", end - start, " seconds")
 
     # Post-processing
     start = time.perf_counter()
     compute_standard_metrics()
     end = time.perf_counter()
-    logging.info("Time taken for post-processing: ", end - start, " seconds")
+    print("Time taken for post-processing: ", end - start, " seconds")
