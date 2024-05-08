@@ -9,8 +9,9 @@ from line_profiler_pycharm import profile
 import numpy as np
 import pandas as pd
 
-from network_sim.host_heterogeneity import age_based_infectiousness_factor, draw_individual_ages, \
+from network_sim.host import age_based_infectiousness_factor, draw_individual_ages, \
     modify_human_infection_lookup_by_age
+from network_sim.importations import import_human_infections
 from network_sim.vector_heterogeneity import age_based_biting_risk, draw_infectious_bite_number, \
     heterogeneous_biting_risk
 
@@ -364,6 +365,7 @@ def evolve(human_infection_lookup,
     vector_lookup = human_to_vector_transmission(human_infection_lookup, vector_lookup, biting_rates, **run_parameters)
     # vector_lookup["n_spo_genotypes"] = vector_lookup["sporozoite_genotypes"].apply(len)
     human_infection_lookup = vector_to_human_transmission(human_infection_lookup, vector_lookup, biting_rates, **run_parameters)
+    human_infection_lookup = import_human_infections(human_infection_lookup, run_parameters)
 
     # Timestep bookkeeping: clear infections which have completed their duration, update vector clocks
     human_infection_lookup, vector_lookup = timestep_bookkeeping(human_infection_lookup, vector_lookup)

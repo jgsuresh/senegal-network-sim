@@ -61,6 +61,39 @@ def modify_human_infection_lookup_by_age(human_infection_lookup, human_ids, huma
     human_infection_lookup.drop(columns=["abif"], inplace=True)
     return human_infection_lookup
 
+def initialize_new_human_infections(N, allele_freq, run_parameters):
+    N_initial_infections = run_parameters["N_initial_infections"]
+    individual_infection_duration = run_parameters["individual_infection_duration"]
+    individual_infectiousness = run_parameters["individual_infectiousness"]
+    infectiousness_distribution = run_parameters["infectiousness_distribution"]
+    human_ids = run_parameters["human_ids"]
+    N_barcode_positions = run_parameters["N_barcode_positions"]
+    demographics_on = run_parameters.get("demographics_on", False)
+    age_modifies_infectiousness = run_parameters.get("age_modifies_infectiousness", False)
+
+
+    # Determine infectiousness of each infection
+    if infectiousness_distribution == "constant":
+        infectiousness = np.ones(N) * individual_infectiousness
+    elif infectiousness_distribution == "exponential":
+        infectiousness = np.random.exponential(scale=individual_infectiousness, size=N_initial_infections)
+    else:
+        raise ValueError("Invalid infectiousness distribution")
+
+    # Distribute initial infections randomly to humans, with random time until clearance
+    human_infection_lookup = pd.DataFrame({"human_id": np.random.choice(human_ids, N_initial_infections, replace=True),
+                                           "infectiousness": infectiousness,
+                                           "days_until_clearance": np.random.randint(1, individual_infection_duration+1, N_initial_infections)})
+
+    if demographics_on and age_modifies_infectiousness:
+        # Infectiousness modified based on age
+        modify_human_infection_lookup_by_age(human_infection_lookup, human_ids, run_parameters["human_ages"])
+
+
+    all_genotype_matrix = np.random.binomial(n=1, p=allele_freq, size=(N_initial_infections, N_barcode_positions)) #fixme Allow for locus-specific allele frequencies
+    human_infection_lookup["genotype"] = [row[0] for row in np.vsplit(all_genotype_matrix, N_initial_infections)]
+    return human_infection_lookup
+
 
 if __name__ == "__main__":
     N_individuals = 100000
