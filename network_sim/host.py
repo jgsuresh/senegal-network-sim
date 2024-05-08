@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from numba import vectorize
+from scipy.special import gamma
 
 from network_sim.vector_heterogeneity import age_based_biting_risk, age_based_surface_area
 
@@ -61,37 +62,53 @@ def modify_human_infection_lookup_by_age(human_infection_lookup, human_ids, huma
     human_infection_lookup.drop(columns=["abif"], inplace=True)
     return human_infection_lookup
 
-def initialize_new_human_infections(N, allele_freq, run_parameters):
-    N_initial_infections = run_parameters["N_initial_infections"]
-    individual_infection_duration = run_parameters["individual_infection_duration"]
-    individual_infectiousness = run_parameters["individual_infectiousness"]
-    infectiousness_distribution = run_parameters["infectiousness_distribution"]
+def initialize_new_human_infections(N,
+                                    run_parameters,
+                                    humans_to_infect=None,
+                                    initialize_genotypes=False,
+                                    allele_freq=None,
+                                    initial_sim_setup=False):
     human_ids = run_parameters["human_ids"]
     N_barcode_positions = run_parameters["N_barcode_positions"]
     demographics_on = run_parameters.get("demographics_on", False)
     age_modifies_infectiousness = run_parameters.get("age_modifies_infectiousness", False)
 
+    infectiousness = draw_infectiousness(N, run_parameters)
 
-    # Determine infectiousness of each infection
-    if infectiousness_distribution == "constant":
-        infectiousness = np.ones(N) * individual_infectiousness
-    elif infectiousness_distribution == "exponential":
-        infectiousness = np.random.exponential(scale=individual_infectiousness, size=N_initial_infections)
+    infection_duration = draw_infection_durations(N, run_parameters)
+    if initial_sim_setup:
+        # If sim is starting now, then we are seeing somewhere in the middle of the infection
+        days_until_clearance = np.random.randint(1, infection_duration+1)
     else:
-        raise ValueError("Invalid infectiousness distribution")
+        # Otherwise, we are starting from the beginning of the infection
+        days_until_clearance = infection_duration
+
+    if initial_sim_setup:
+        humans_to_infect = np.random.choice(human_ids, N, replace=True)
+
+    if humans_to_infect is None:
+        raise ValueError("Must provide humans to infect")
 
     # Distribute initial infections randomly to humans, with random time until clearance
-    human_infection_lookup = pd.DataFrame({"human_id": np.random.choice(human_ids, N_initial_infections, replace=True),
+    human_infection_lookup = pd.DataFrame({"human_id": humans_to_infect,
                                            "infectiousness": infectiousness,
-                                           "days_until_clearance": np.random.randint(1, individual_infection_duration+1, N_initial_infections)})
+                                           "days_until_clearance": days_until_clearance})
 
     if demographics_on and age_modifies_infectiousness:
         # Infectiousness modified based on age
         modify_human_infection_lookup_by_age(human_infection_lookup, human_ids, run_parameters["human_ages"])
 
+    if initialize_genotypes:
+        if allele_freq is None:
+            raise ValueError("Must provide allele frequency to initialize genotypes")
+        # Generate genotypes for each infection based on allele frequency
+        all_genotype_matrix = np.random.binomial(n=1, p=allele_freq, size=(N, N_barcode_positions)) #fixme Allow for locus-specific allele frequencies
+        human_infection_lookup["genotype"] = [row[0] for row in np.vsplit(all_genotype_matrix, N)]
 
-    all_genotype_matrix = np.random.binomial(n=1, p=allele_freq, size=(N_initial_infections, N_barcode_positions)) #fixme Allow for locus-specific allele frequencies
-    human_infection_lookup["genotype"] = [row[0] for row in np.vsplit(all_genotype_matrix, N_initial_infections)]
+    if initial_sim_setup:
+        # Add infection IDs
+        human_infection_lookup["infection_id"] = np.arange(N)
+
     return human_infection_lookup
 
 
@@ -112,3 +129,33 @@ if __name__ == "__main__":
     plt.ylabel('Frequency')
     plt.title('Age distribution of individuals')
     plt.show()
+
+
+def draw_infection_durations(N, run_parameters):
+    distribution = run_parameters.get("infection_duration_distribution", "constant")
+    mean_duration = run_parameters.get("individual_infection_duration")
+
+    if distribution == "constant":
+        return np.ones(N) * mean_duration
+    elif distribution == "exponential":
+        return (np.random.exponential(scale=mean_duration, size=N)).astype(np.int64)
+    elif distribution == "weibull":
+        shape = run_parameters.get("weibull_infection_duration_shape", 2.2)
+        # Calculate the scale parameter for the Weibull distribution
+        scale = mean_duration / gamma(1 + 1 / shape)
+        # Generate a sample from the Weibull distribution
+        return (np.random.weibull(shape, N) * scale).astype(np.int64)
+
+def draw_infectiousness(N, run_parameters):
+    infectiousness_distribution = run_parameters.get("infectiousness_distribution", "constant")
+    individual_infectiousness = run_parameters.get("individual_infectiousness")
+
+    # Determine infectiousness of each infection
+    if infectiousness_distribution == "constant":
+        infectiousness = np.ones(N) * individual_infectiousness
+    elif infectiousness_distribution == "exponential":
+        infectiousness = np.random.exponential(scale=individual_infectiousness, size=N)
+    else:
+        raise ValueError("Invalid infectiousness distribution")
+
+    return infectiousness

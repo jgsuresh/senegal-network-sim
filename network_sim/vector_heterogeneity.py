@@ -1,5 +1,8 @@
 import numpy as np
+from line_profiler_pycharm import profile
 from numba import njit, vectorize
+
+from network_sim.meiosis_models.super_simple import gametocyte_to_sporozoite_genotypes_numba
 
 
 def draw_infectious_bite_number(N_vectors, run_parameters):
@@ -145,3 +148,88 @@ def _estimate_eir():
 
 if __name__=="__main__":
     estimate_eir()
+
+
+def determine_which_genotypes_mosquito_picks_up(human_id, infection_lookup):
+    # Note: this function is only called if mosquito is guaranteed to be infected by at least one genotype
+
+    # Get all infections for this human
+    this_human = infection_lookup[infection_lookup["human_id"] == human_id]
+
+    # If human has only 1 infection, then mosquito picks up that infection
+    if this_human.shape[0] == 0:
+        raise ValueError("Human has no infections")
+    elif this_human.shape[0] == 1:
+        return [this_human["genotype"].iloc[0]]
+    else:
+        # If human has multiple genotypes, then simulate bites until at least 1 genotype is picked up
+        prob_transmit = np.array(this_human["infectiousness"])
+        at_least_one_transmits = 1-np.prod(1-np.array(prob_transmit))
+        prob_transmit = prob_transmit/at_least_one_transmits
+        #
+        # while True:
+        #     # print("simulating bites")
+        #     # Simulate bites
+        #     # successes = np.random.rand(len(prob_transmit_rescaled)) < prob_transmit_rescaled
+        #     successes = np.random.rand(len(prob_transmit)) < prob_transmit
+        #     if np.sum(successes) >= 1:
+        #         return list(this_human["genotype"][successes])
+
+        # GH speedup suggestion:
+        # Calculate the length of prob_transmit before the loop
+        len_prob_transmit = len(prob_transmit)
+
+        # Pre-allocate a boolean array for successes
+        successes = np.zeros(len_prob_transmit, dtype=bool)
+
+        # Continue looping until at least one success
+        while not np.any(successes):
+            # Use in-place operation to modify the successes array
+            successes[:] = np.random.rand(len_prob_transmit) < prob_transmit
+
+        # Return the successful genotypes
+        return list(this_human["genotype"][successes])
+
+
+@profile
+def determine_sporozoite_genotypes(vector_lookup):
+    # Determine sporozoite genotypes (i.e. the genotypes that each vector will transmit)
+
+    # vector_lookup["gametocyte_genotypes"] is a list of arrays. Check that no array is actually a nan
+    contains_nan = vector_lookup["gametocyte_genotypes"].apply(lambda x: np.isnan(x).any()).any()
+    if contains_nan:
+        raise ValueError("NaNs found in gametocyte genotypes.")
+
+    vector_lookup["n_gam_genotypes"] = vector_lookup["gametocyte_genotypes"].apply(len)
+    no_recombination_needed = vector_lookup["n_gam_genotypes"] == 1
+    recombination_needed = vector_lookup["n_gam_genotypes"] > 1
+
+    # If vector has a single infection, then the transmitting genotype is the same as the infection genotype
+    # no_recombination_needed = vector_lookup["gametocyte_genotypes"].apply(lambda x: len(x) == 1)
+    if no_recombination_needed.sum() > 0:
+        vector_lookup.loc[no_recombination_needed, "sporozoite_genotypes"] = vector_lookup.loc[no_recombination_needed, "gametocyte_genotypes"]
+
+    # If vector has multiple infections, then simulate recombination
+    # has_multiple_infection_objects = vector_lookup["gametocyte_genotypes"].apply(lambda x: len(x) > 1)
+    if recombination_needed.sum() > 0:
+        # Get the rows with multiple infection objects
+        multiple_infection_rows = vector_lookup[recombination_needed]
+
+        # Calculate the sporozoite genotypes for these rows
+        # sporozoite_genotypes = multiple_infection_rows["gametocyte_genotypes"].apply(gametocyte_to_sporozoite_genotypes)
+        sporozoite_genotypes = multiple_infection_rows["gametocyte_genotypes"].apply(lambda x: np.vstack(x)).apply(gametocyte_to_sporozoite_genotypes_numba)
+        # sporozoite_genotypes = gametocyte_to_sporozoite_genotypes_numba(multiple_infection_rows["gametocyte_genotypes"].values.astype(np.int32))
+        # sporozoite_genotypes = [list(s) for s in sporozoite_genotypes]
+
+        # Update the sporozoite genotypes in the original DataFrame
+        vector_lookup.loc[recombination_needed, "sporozoite_genotypes"] = sporozoite_genotypes
+    return vector_lookup
+
+
+def determine_biting_rates(N_individuals, run_parameters):
+    daily_bite_rate = run_parameters["daily_bite_rate"]
+
+    abr = age_based_biting_risk(N_individuals, run_parameters)
+    hbr = heterogeneous_biting_risk(N_individuals, run_parameters)
+
+    return np.ones(N_individuals) * daily_bite_rate * abr * hbr

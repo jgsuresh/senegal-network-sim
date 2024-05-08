@@ -1,70 +1,20 @@
-import io
-import pstats
-import time
-
-from scipy.special import gamma
-
 from line_profiler_pycharm import profile
 
 import numpy as np
 import pandas as pd
 
-from network_sim.host import age_based_infectiousness_factor, draw_individual_ages, \
-    modify_human_infection_lookup_by_age
+from network_sim.host import draw_individual_ages, \
+    draw_infection_durations, initialize_new_human_infections, modify_human_infection_lookup_by_age
 from network_sim.importations import import_human_infections
-from network_sim.vector_heterogeneity import age_based_biting_risk, draw_infectious_bite_number, \
-    heterogeneous_biting_risk
+from network_sim.vector_heterogeneity import determine_biting_rates, \
+    determine_sporozoite_genotypes, \
+    determine_which_genotypes_mosquito_picks_up, \
+    draw_infectious_bite_number
 
 pd.options.mode.chained_assignment = None  # default='warn'
-import cProfile
 
-from numba import jit
-
-from network_sim.meiosis_models.super_simple import gametocyte_to_sporozoite_genotypes, \
-    gametocyte_to_sporozoite_genotypes_numba
-from network_sim.metrics import complexity_of_infection, get_n_unique_strains, polygenomic_fraction, save_genotypes
+from network_sim.metrics import get_n_unique_strains, save_genotypes
 from network_sim.run_helpers import load_parameters
-
-
-def determine_which_genotypes_mosquito_picks_up(human_id, infection_lookup):
-    # Note: this function is only called if mosquito is guaranteed to be infected by at least one genotype
-
-    # Get all infections for this human
-    this_human = infection_lookup[infection_lookup["human_id"] == human_id]
-
-    # If human has only 1 infection, then mosquito picks up that infection
-    if this_human.shape[0] == 0:
-        raise ValueError("Human has no infections")
-    elif this_human.shape[0] == 1:
-        return [this_human["genotype"].iloc[0]]
-    else:
-        # If human has multiple genotypes, then simulate bites until at least 1 genotype is picked up
-        prob_transmit = np.array(this_human["infectiousness"])
-        at_least_one_transmits = 1-np.prod(1-np.array(prob_transmit))
-        prob_transmit = prob_transmit/at_least_one_transmits
-        #
-        # while True:
-        #     # print("simulating bites")
-        #     # Simulate bites
-        #     # successes = np.random.rand(len(prob_transmit_rescaled)) < prob_transmit_rescaled
-        #     successes = np.random.rand(len(prob_transmit)) < prob_transmit
-        #     if np.sum(successes) >= 1:
-        #         return list(this_human["genotype"][successes])
-
-        # GH speedup suggestion:
-        # Calculate the length of prob_transmit before the loop
-        len_prob_transmit = len(prob_transmit)
-
-        # Pre-allocate a boolean array for successes
-        successes = np.zeros(len_prob_transmit, dtype=bool)
-
-        # Continue looping until at least one success
-        while not np.any(successes):
-            # Use in-place operation to modify the successes array
-            successes[:] = np.random.rand(len_prob_transmit) < prob_transmit
-
-        # Return the successful genotypes
-        return list(this_human["genotype"][successes])
 
 
 @profile
@@ -186,21 +136,6 @@ def human_to_vector_transmission(infection_lookup,
 # def initialize_new_human_infections(n_new_infections, run_parameters):
 #     # Determine infection durations and infectiousness
 
-def draw_infection_durations(N, run_parameters):
-    distribution = run_parameters.get("infection_duration_distribution", "constant")
-    mean_duration = run_parameters.get("individual_infection_duration")
-
-    if distribution == "constant":
-        return np.ones(N) * mean_duration
-    elif distribution == "exponential":
-        return (np.random.exponential(scale=mean_duration, size=N)).astype(np.int64)
-    elif distribution == "weibull":
-        shape = run_parameters.get("weibull_infection_duration_shape", 2.2)
-        # Calculate the scale parameter for the Weibull distribution
-        scale = mean_duration / gamma(1 + 1 / shape)
-        # Generate a sample from the Weibull distribution
-        return (np.random.weibull(shape, N) * scale).astype(np.int64)
-
 
 @profile
 def vector_to_human_transmission(infection_lookup,
@@ -208,13 +143,6 @@ def vector_to_human_transmission(infection_lookup,
                                  biting_rates,
                                  **kwargs):
     human_ids = kwargs.get('human_ids')
-    individual_infectiousness = kwargs.get("individual_infectiousness")
-    infection_duration_distribution = kwargs.get("infection_duration_distribution", "constant")
-    individual_infection_duration = kwargs.get("individual_infection_duration")
-    infectiousness_distribution = kwargs.get("infectiousness_distribution")
-    demographics_on = kwargs.get("demographics_on", False)
-    age_modifies_infectiousness = kwargs.get("age_modifies_infectiousness", False)
-
 
     if vector_lookup.shape[0] == 0:
         # Only need to do this if there are vectors at all
@@ -246,22 +174,9 @@ def vector_to_human_transmission(infection_lookup,
                               rename(columns={"sporozoite_genotypes": "genotype"}))
             N_new_infections = new_infections.shape[0]
 
-            # Add infectiousness information
-            if infectiousness_distribution == "constant":
-                infectiousness = np.ones(new_infections.shape[0]) * individual_infectiousness
-            elif infectiousness_distribution == "exponential":
-                infectiousness = np.random.exponential(scale=individual_infectiousness, size=new_infections.shape[0])
-            else:
-                raise ValueError("Invalid infectiousness distribution")
-            new_infections["infectiousness"] = infectiousness
-
-            # If demographics are on, modify infectiousness based on age
-            if demographics_on and age_modifies_infectiousness:
-                modify_human_infection_lookup_by_age(new_infections, human_ids, kwargs['human_ages'])
-
-            # Add infection duration information
-            # new_infections["days_until_clearance"] = individual_infection_duration + 1 #fixme draw from distribution
-            new_infections["days_until_clearance"] = draw_infection_durations(N_new_infections, kwargs)
+            # Generate infectiousness and infection duration for each new infection
+            new_infection_stats = initialize_new_human_infections(N_new_infections, kwargs, initialize_genotypes=False, humans_to_infect=list(new_infections["human_id"]))
+            new_infections = pd.merge(new_infections, new_infection_stats, on="human_id")
 
             # Add infection id
             max_inf_id = infection_lookup["infection_id"].max()
@@ -301,57 +216,12 @@ def timestep_bookkeeping(human_infection_lookup, vector_lookup):
     return human_infection_lookup, vector_lookup
 
 
-
-@profile
-def determine_sporozoite_genotypes(vector_lookup):
-    # Determine sporozoite genotypes (i.e. the genotypes that each vector will transmit)
-
-    # vector_lookup["gametocyte_genotypes"] is a list of arrays. Check that no array is actually a nan
-    contains_nan = vector_lookup["gametocyte_genotypes"].apply(lambda x: np.isnan(x).any()).any()
-    if contains_nan:
-        raise ValueError("NaNs found in gametocyte genotypes.")
-
-    vector_lookup["n_gam_genotypes"] = vector_lookup["gametocyte_genotypes"].apply(len)
-    no_recombination_needed = vector_lookup["n_gam_genotypes"] == 1
-    recombination_needed = vector_lookup["n_gam_genotypes"] > 1
-
-    # If vector has a single infection, then the transmitting genotype is the same as the infection genotype
-    # no_recombination_needed = vector_lookup["gametocyte_genotypes"].apply(lambda x: len(x) == 1)
-    if no_recombination_needed.sum() > 0:
-        vector_lookup.loc[no_recombination_needed, "sporozoite_genotypes"] = vector_lookup.loc[no_recombination_needed, "gametocyte_genotypes"]
-
-    # If vector has multiple infections, then simulate recombination
-    # has_multiple_infection_objects = vector_lookup["gametocyte_genotypes"].apply(lambda x: len(x) > 1)
-    if recombination_needed.sum() > 0:
-        # Get the rows with multiple infection objects
-        multiple_infection_rows = vector_lookup[recombination_needed]
-
-        # Calculate the sporozoite genotypes for these rows
-        # sporozoite_genotypes = multiple_infection_rows["gametocyte_genotypes"].apply(gametocyte_to_sporozoite_genotypes)
-        sporozoite_genotypes = multiple_infection_rows["gametocyte_genotypes"].apply(lambda x: np.vstack(x)).apply(gametocyte_to_sporozoite_genotypes_numba)
-        # sporozoite_genotypes = gametocyte_to_sporozoite_genotypes_numba(multiple_infection_rows["gametocyte_genotypes"].values.astype(np.int32))
-        # sporozoite_genotypes = [list(s) for s in sporozoite_genotypes]
-
-        # Update the sporozoite genotypes in the original DataFrame
-        vector_lookup.loc[recombination_needed, "sporozoite_genotypes"] = sporozoite_genotypes
-    return vector_lookup
-
-
-
 def get_max_infection_id(infection_lookup):
     if infection_lookup.shape[0] == 0:
         return 0
     else:
         return infection_lookup["infection_id"].max()
 
-
-def determine_biting_rates(N_individuals, run_parameters):
-    daily_bite_rate = run_parameters["daily_bite_rate"]
-
-    abr = age_based_biting_risk(N_individuals, run_parameters)
-    hbr = heterogeneous_biting_risk(N_individuals, run_parameters)
-
-    return np.ones(N_individuals) * daily_bite_rate * abr * hbr
 
 # @jit(forceobj=True)
 @profile
@@ -365,7 +235,7 @@ def evolve(human_infection_lookup,
     vector_lookup = human_to_vector_transmission(human_infection_lookup, vector_lookup, biting_rates, **run_parameters)
     # vector_lookup["n_spo_genotypes"] = vector_lookup["sporozoite_genotypes"].apply(len)
     human_infection_lookup = vector_to_human_transmission(human_infection_lookup, vector_lookup, biting_rates, **run_parameters)
-    human_infection_lookup = import_human_infections(human_infection_lookup, run_parameters)
+    # human_infection_lookup = import_human_infections(human_infection_lookup, run_parameters)
 
     # Timestep bookkeeping: clear infections which have completed their duration, update vector clocks
     human_infection_lookup, vector_lookup = timestep_bookkeeping(human_infection_lookup, vector_lookup)
@@ -374,38 +244,13 @@ def evolve(human_infection_lookup,
 
 def initial_setup(run_parameters):
     N_initial_infections = run_parameters["N_initial_infections"]
-    individual_infection_duration = run_parameters["individual_infection_duration"]
-    individual_infectiousness = run_parameters["individual_infectiousness"]
-    infectiousness_distribution = run_parameters["infectiousness_distribution"]
-    human_ids = run_parameters["human_ids"]
-    N_barcode_positions = run_parameters["N_barcode_positions"]
-    demographics_on = run_parameters.get("demographics_on", False)
-    age_modifies_infectiousness = run_parameters.get("age_modifies_infectiousness", False)
 
     # Generate initial infections
-    infection_ids = np.arange(N_initial_infections)
-
-    # Determine infectiousness of each infection
-    if infectiousness_distribution == "constant":
-        infectiousness = np.ones(N_initial_infections) * individual_infectiousness
-    elif infectiousness_distribution == "exponential":
-        infectiousness = np.random.exponential(scale=individual_infectiousness, size=N_initial_infections)
-    else:
-        raise ValueError("Invalid infectiousness distribution")
-
-    # Distribute initial infections randomly to humans, with random time until clearance
-    human_infection_lookup = pd.DataFrame({"infection_id": infection_ids,
-                                           "human_id": np.random.choice(human_ids, N_initial_infections, replace=True),
-                                           "infectiousness": infectiousness,
-                                           "days_until_clearance": np.random.randint(1, individual_infection_duration+1, N_initial_infections)})
-
-    if demographics_on and age_modifies_infectiousness:
-        # Infectiousness modified based on age
-        modify_human_infection_lookup_by_age(human_infection_lookup, human_ids, run_parameters["human_ages"])
-
-
-    all_genotype_matrix = np.random.binomial(n=1, p=0.5, size=(N_initial_infections, N_barcode_positions)) #fixme Allow for locus-specific allele frequencies
-    human_infection_lookup["genotype"] = [row[0] for row in np.vsplit(all_genotype_matrix, N_initial_infections)]
+    human_infection_lookup = initialize_new_human_infections(N=N_initial_infections,
+                                                             allele_freq=0.5,
+                                                             run_parameters=run_parameters,
+                                                             initial_sim_setup=True,
+                                                             initialize_genotypes=True)
 
     # Generate vector lookup
     vector_lookup = pd.DataFrame({"vector_id": [],
