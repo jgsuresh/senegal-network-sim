@@ -503,8 +503,9 @@ def run_sim(run_parameters, verbose=True):
 
     # Save info about humans
     human_info = pd.DataFrame({"human_id": human_ids,
-                               "ages": run_parameters.get("human_ages", None),
                                "bite_rates": biting_rates})
+    if demographics_on:
+        human_info["age"] = run_parameters["human_ages"]
     human_info.to_csv("human_info.csv", index=False)
 
 
