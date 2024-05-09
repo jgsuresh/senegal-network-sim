@@ -83,11 +83,8 @@ def initialize_new_human_infections(N,
         # Otherwise, we are starting from the beginning of the infection
         days_until_clearance = infection_duration
 
-    if initial_sim_setup:
-        humans_to_infect = np.random.choice(human_ids, N, replace=True)
-
     if humans_to_infect is None:
-        raise ValueError("Must provide humans to infect")
+        humans_to_infect = np.random.choice(human_ids, N, replace=True)
 
     # Distribute initial infections randomly to humans, with random time until clearance
     human_infection_lookup = pd.DataFrame({"human_id": humans_to_infect,
