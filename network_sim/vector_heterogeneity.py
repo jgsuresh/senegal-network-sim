@@ -146,6 +146,17 @@ def _estimate_eir():
     print(len(all_infected_bite_times[all_infected_bite_times<=111])/112)
     pass
 
+
+# @njit
+def simulate_bites(prob_transmit):
+    at_least_one_transmits = 1 - np.prod(1 - np.array(prob_transmit))
+    prob_transmit = prob_transmit / at_least_one_transmits
+
+    while True:
+        successes = np.random.rand(len(prob_transmit)) < prob_transmit
+        if np.sum(successes) >= 1:
+            return list(successes)
+
 @profile
 def determine_which_genotypes_mosquito_picks_up(human_id, infection_lookup):
     # Note: this function is only called if mosquito is guaranteed to be infected by at least one genotype
@@ -161,29 +172,7 @@ def determine_which_genotypes_mosquito_picks_up(human_id, infection_lookup):
     else:
         # If human has multiple genotypes, then simulate bites until at least 1 genotype is picked up
         prob_transmit = np.array(this_human["infectiousness"])
-        at_least_one_transmits = 1-np.prod(1-np.array(prob_transmit))
-        prob_transmit = prob_transmit/at_least_one_transmits
-        #
-        # while True:
-        #     # print("simulating bites")
-        #     # Simulate bites
-        #     # successes = np.random.rand(len(prob_transmit_rescaled)) < prob_transmit_rescaled
-        #     successes = np.random.rand(len(prob_transmit)) < prob_transmit
-        #     if np.sum(successes) >= 1:
-        #         return list(this_human["genotype"][successes])
-
-        # GH speedup suggestion:
-        # Calculate the length of prob_transmit before the loop
-        len_prob_transmit = len(prob_transmit)
-
-        # Pre-allocate a boolean array for successes
-        successes = np.zeros(len_prob_transmit, dtype=bool)
-
-        # Continue looping until at least one success
-        while not np.any(successes):
-            # Use in-place operation to modify the successes array
-            successes[:] = np.random.rand(len_prob_transmit) < prob_transmit
-
+        successes = simulate_bites(prob_transmit)
         # Return the successful genotypes
         return list(this_human["genotype"][successes])
 
