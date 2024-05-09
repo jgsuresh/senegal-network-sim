@@ -1,0 +1,1 @@
+Trying to speed up code where possible

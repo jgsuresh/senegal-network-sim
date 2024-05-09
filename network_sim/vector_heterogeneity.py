@@ -146,10 +146,7 @@ def _estimate_eir():
     print(len(all_infected_bite_times[all_infected_bite_times<=111])/112)
     pass
 
-if __name__=="__main__":
-    estimate_eir()
-
-
+@profile
 def determine_which_genotypes_mosquito_picks_up(human_id, infection_lookup):
     # Note: this function is only called if mosquito is guaranteed to be infected by at least one genotype
 

@@ -46,10 +46,12 @@ def meiosis_numba(parent1_genotype, parent2_genotype):
 
     # Shuffle the columns of the matrix, so each offspring gets a random mix of parent genotypes
     for col in range(offspring_genotypes_matrix.shape[1]):
-        np.random.shuffle(offspring_genotypes_matrix[:, col])
+        if parent1_genotype[col] != parent2_genotype[col]:
+            np.random.shuffle(offspring_genotypes_matrix[:, col])
 
     # Return the matrix
     return offspring_genotypes_matrix
+
 
 @njit(parallel=True)
 def meiosis_numba_parallel(parent1_genotype, parent2_genotype):
@@ -76,13 +78,15 @@ def num_oocysts(model="fpg", min_oocysts=0):
         p = 0.5  # probability of failure. EMOD param Probability_Oocyst_In_Bite_Fails
 
         # return np.max([min_oocysts, np.random.negative_binomial(r, p)])
-        return np.max(np.array([min_oocysts, np.random.negative_binomial(r, p)]))
+        return max(np.array([min_oocysts, np.random.negative_binomial(r, p)]))
 
     elif model == "fwd-dream":
         return min([np.random.geometric(0.5), 10])
 
     else:
         raise ValueError("Model not recognized.")
+
+
 
 def gametocyte_to_oocyst_offspring_genotypes(gametocyte_genotypes, gametocyte_densities=None, num_oocyst_model="fpg"):
     # Assumes gametocytype genotypes is a list of arrays. Each element of the list is a different genotype.
@@ -108,8 +112,7 @@ def gametocyte_to_oocyst_offspring_genotypes(gametocyte_genotypes, gametocyte_de
 
         return offspring_genotypes
 
-# @njit
-@njit(parallel=True)
+@njit
 def gametocyte_to_oocyst_offspring_genotypes_numba(gametocyte_genotypes, num_oocyst_model="fpg"):
     # Assumes gametocytype genotypes is a numpy matrix. Each row is a different genotype.
     # Assumes all oocyst offspring have equal likelihood to be onwardly transmitted.
@@ -124,13 +127,18 @@ def gametocyte_to_oocyst_offspring_genotypes_numba(gametocyte_genotypes, num_ooc
 
         offspring_genotypes = np.empty((n_oocyst*4, gametocyte_genotypes.shape[1]), dtype=np.int32)
 
-        for i in prange(n_oocyst):
-            parent_indices = np.random.randint(0, len(gametocyte_genotypes), 2)
-            parent1_genotype = gametocyte_genotypes[parent_indices[0]]
-            parent2_genotype = gametocyte_genotypes[parent_indices[1]]
-            offspring_genotypes[i*4:(i+1)*4] = meiosis_numba_parallel(parent1_genotype, parent2_genotype)
-            # offspring_genotypes[i*4:(i+1)*4] = meiosis_numba(parent1_genotype, parent2_genotype)
-            # offspring_genotypes[(meiosis_numba(parent1_genotype, parent2_genotype))
+        for i in range(n_oocyst):
+            parent1_index = random.randint(0,1)
+            parent2_index = random.randint(0,1)
+            parent1_genotype = gametocyte_genotypes[parent1_index]
+
+            if parent1_index == parent2_index:
+                # Selfing
+                offspring_genotypes[i * 4:(i + 1) * 4] = np.vstack((parent1_genotype,parent1_genotype,parent1_genotype,parent1_genotype))
+            else:
+                parent2_genotype = gametocyte_genotypes[parent2_index]
+                offspring_genotypes[i*4:(i+1)*4] = meiosis_numba(parent1_genotype, parent2_genotype)
+
         return offspring_genotypes
 
 # @njit
@@ -291,3 +299,5 @@ if __name__ == "__main__":
 
     end = time.perf_counter()
     print("Elapsed (without numba) = {}s".format((end - start)))
+
+

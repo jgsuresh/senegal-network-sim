@@ -1,0 +1,1 @@
+Heterogeneous biting. Now with 2 import per day, allele freq at all loci = 0.2 (initial infections have allele freq of 0.5 at all loci)

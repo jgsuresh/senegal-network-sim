@@ -275,12 +275,9 @@ def run_sim(run_parameters, verbose=True):
 
     sim_duration = run_parameters["sim_duration"]
     N_individuals = run_parameters["N_individuals"]
-    daily_bite_rate = run_parameters["daily_bite_rate"]
-    daily_bite_rate_distribution = run_parameters["daily_bite_rate_distribution"]
     demographics_on = run_parameters.get("demographics_on", False)
     save_all_data = run_parameters.get("save_all_data", True)
     timesteps_between_outputs = run_parameters.get("timesteps_between_outputs", 1)
-
 
     human_ids = np.arange(N_individuals)
     run_parameters["human_ids"] = human_ids
