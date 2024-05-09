@@ -1,1 +1,1 @@
-Same as 240502-07 - heterogeneous biting. Save biting info so we can try visualizing biting risk vs COI
+Same as 240507-02 - heterogeneous biting. Now with 1 import per day, allele freq at all loci = 0.2 (initial infections have allele freq of 0.5 at all loci)

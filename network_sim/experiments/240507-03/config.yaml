@@ -21,6 +21,6 @@ age_modifies_infectiousness: False
 save_all_data: True
 timesteps_between_outputs: 10
 # importations
-include_importations: False
+include_importations: True
 importations_per_day: 1.0
 importation_allele_freq: 0.2
