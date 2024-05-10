@@ -147,9 +147,9 @@ def _estimate_eir():
     pass
 
 
-# @njit
+@njit
 def simulate_bites(prob_transmit):
-    at_least_one_transmits = 1 - np.prod(1 - np.array(prob_transmit))
+    at_least_one_transmits = 1 - np.prod(1 - prob_transmit)
     prob_transmit = prob_transmit / at_least_one_transmits
 
     while True:
@@ -180,11 +180,6 @@ def determine_which_genotypes_mosquito_picks_up(human_id, infection_lookup):
 @profile
 def determine_sporozoite_genotypes(vector_lookup):
     # Determine sporozoite genotypes (i.e. the genotypes that each vector will transmit)
-
-    # vector_lookup["gametocyte_genotypes"] is a list of arrays. Check that no array is actually a nan
-    contains_nan = vector_lookup["gametocyte_genotypes"].apply(lambda x: np.isnan(x).any()).any()
-    if contains_nan:
-        raise ValueError("NaNs found in gametocyte genotypes.")
 
     vector_lookup["n_gam_genotypes"] = vector_lookup["gametocyte_genotypes"].apply(len)
     no_recombination_needed = vector_lookup["n_gam_genotypes"] == 1

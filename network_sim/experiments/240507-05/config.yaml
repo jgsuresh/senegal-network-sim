@@ -1,7 +1,7 @@
 # config.yaml
 sim_duration: 150
-N_individuals: 1000
-N_initial_infections: 400
+N_individuals: 10000
+N_initial_infections: 4000
 individual_infection_duration: 100
 infection_duration_distribution: "constant"
 weibull_infection_duration_shape: 2.2

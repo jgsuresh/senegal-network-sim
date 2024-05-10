@@ -42,7 +42,10 @@ def meiosis_numba(parent1_genotype, parent2_genotype):
     # The 4 offspring choose randomly, without replacement, from this bucket.
 
     # Stack the parent genotypes to create a matrix of shape (4, n_snps)
-    offspring_genotypes_matrix = np.vstack((parent1_genotype, parent1_genotype, parent2_genotype, parent2_genotype))
+    offspring_genotypes_matrix = np.vstack((parent1_genotype,
+                                            parent1_genotype,
+                                            parent2_genotype,
+                                            parent2_genotype))
 
     # Shuffle the columns of the matrix, so each offspring gets a random mix of parent genotypes
     for col in range(offspring_genotypes_matrix.shape[1]):
@@ -77,11 +80,10 @@ def num_oocysts(model="fpg", min_oocysts=0):
         r = 3  # number of failures. EMOD param Num_Oocyst_In_Bite_Fail
         p = 0.5  # probability of failure. EMOD param Probability_Oocyst_In_Bite_Fails
 
-        # return np.max([min_oocysts, np.random.negative_binomial(r, p)])
-        return max(np.array([min_oocysts, np.random.negative_binomial(r, p)]))
+        return max(min_oocysts, np.random.negative_binomial(r, p))
 
     elif model == "fwd-dream":
-        return min([np.random.geometric(0.5), 10])
+        return min(np.random.geometric(0.5), 10)
 
     else:
         raise ValueError("Model not recognized.")
@@ -142,17 +144,14 @@ def gametocyte_to_oocyst_offspring_genotypes_numba(gametocyte_genotypes, num_ooc
         return offspring_genotypes
 
 # @njit
+# @profile
 @njit
-def num_sporozites(model="fpg", min_sporozoites=0):
-    if model=="fpg":
-        # Parameters
-        r = 12  # number of failures. EMOD param Num_Sporozoite_In_Bite_Fail
-        p = 0.5  # probability of failure. EMOD param Probability_Sporozoite_In_Bite_Fails
+def num_sporozites(min_sporozoites=0):
+    # Parameters
+    r = 12  # number of failures. EMOD param Num_Sporozoite_In_Bite_Fail
+    p = 0.5  # probability of failure. EMOD param Probability_Sporozoite_In_Bite_Fails
+    return max(min_sporozoites,np.random.negative_binomial(r, p))
 
-        return np.max(np.array([min_sporozoites, np.random.negative_binomial(r, p)]))
-
-    else:
-        raise ValueError("Model not recognized.")
 
 def oocyst_offspring_to_sporozoite_genotypes(oocyst_offspring_genotypes):
     n_spz = num_sporozites(model="fpg", min_sporozoites=1)
@@ -160,7 +159,7 @@ def oocyst_offspring_to_sporozoite_genotypes(oocyst_offspring_genotypes):
 
 @njit
 def oocyst_offspring_to_sporozoite_genotypes_numba(oocyst_offspring_genotypes):
-    n_spz = num_sporozites(model="fpg", min_sporozoites=1)
+    n_spz = num_sporozites(min_sporozoites=1)
     indices = np.random.choice(oocyst_offspring_genotypes.shape[0], size=n_spz)
     return oocyst_offspring_genotypes[indices]
 
@@ -181,8 +180,7 @@ def gametocyte_to_sporozoite_genotypes(gametocyte_genotypes, gametocyte_densitie
         sporozoite_genotypes_without_duplicates = [row[0] for row in np.vsplit(sporozoite_genotypes_without_duplicates, sporozoite_genotypes_without_duplicates.shape[0])]
         return sporozoite_genotypes_without_duplicates
 
-# @njit
-@profile
+@njit
 def gametocyte_to_sporozoite_genotypes_numba(gametocyte_genotypes):
     oocyst_offspring_genotypes = gametocyte_to_oocyst_offspring_genotypes_numba(gametocyte_genotypes)
     sporozoite_genotypes = oocyst_offspring_to_sporozoite_genotypes_numba(oocyst_offspring_genotypes)
@@ -191,8 +189,8 @@ def gametocyte_to_sporozoite_genotypes_numba(gametocyte_genotypes):
     if sporozoite_genotypes.shape[0] == 1:
         return sporozoite_genotypes
     else:
-        sporozoite_genotypes_without_duplicates = np.unique(sporozoite_genotypes, axis=0)
-        # sporozoite_genotypes_without_duplicates = find_unique_rows(sporozoite_genotypes)
+        # sporozoite_genotypes_without_duplicates = np.unique(sporozoite_genotypes, axis=0)
+        sporozoite_genotypes_without_duplicates = find_unique_rows(sporozoite_genotypes)
         return sporozoite_genotypes_without_duplicates
 
 def _explore_sporozoite_diversity(n_unique_gametocyte_genotypes=10, n_barcode_positions=15):
