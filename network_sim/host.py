@@ -72,6 +72,7 @@ def initialize_new_human_infections(N,
     N_barcode_positions = run_parameters["N_barcode_positions"]
     demographics_on = run_parameters.get("demographics_on", False)
     age_modifies_infectiousness = run_parameters.get("age_modifies_infectiousness", False)
+    track_roots = run_parameters.get("track_roots", False)
 
     infectiousness = draw_infectiousness(N, run_parameters)
 
@@ -101,10 +102,6 @@ def initialize_new_human_infections(N,
         # Generate genotypes for each infection based on allele frequency
         all_genotype_matrix = np.random.binomial(n=1, p=allele_freq, size=(N, N_barcode_positions)) #fixme Allow for locus-specific allele frequencies
         human_infection_lookup["genotype"] = [row[0] for row in np.vsplit(all_genotype_matrix, N)]
-
-    if initial_sim_setup:
-        # Add infection IDs
-        human_infection_lookup["infection_id"] = np.arange(N)
 
     return human_infection_lookup
 

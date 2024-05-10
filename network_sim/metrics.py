@@ -4,22 +4,47 @@ from matplotlib import pyplot as plt
 from numba import njit, prange
 
 
-def save_genotypes(full_df, filename="genotypes.csv"):
+def save_genotypes(full_df, root_lookup=None):
+    def _make_dataframe(df, barcodes):
+        df_return = df.copy()
+        for i in range(barcodes.shape[1]):
+            df_return[f"SNP_{i}"] = barcodes[:, i]
+        # Drop the genotype column
+        df_return.drop("genotype", axis=1, inplace=True)
+
+        return df_return
+
     # Entries in genotype column are numpy arrays.
     # Save a new dataframe where each barcode position has its own row
-    genotypes = full_df["genotype"].values
-    genotypes = np.vstack(genotypes)
+    barcodes = full_df["genotype"].values
+    barcodes = np.vstack(barcodes)
 
-    # Add the SNP columns to the original dataframe
-    for i in range(genotypes.shape[1]):
-        full_df[f"SNP_{i}"] = genotypes[:, i]
+    if root_lookup is None:
+        # Assume the barcodes are the actual genotypes
+        infection_genotypes_df = _make_dataframe(full_df, barcodes)
+        infection_genotypes_df.to_csv("infection_genotypes.csv", index=False)
+    else:
+        # Assume the barcodes we have right now are root barcodes
+        infection_root_barcodes_df = _make_dataframe(full_df, barcodes)
+        infection_root_barcodes_df.to_csv("infection_root_barcodes.csv", index=False)
 
-    # Drop the genotype column
-    full_df.drop("genotype", axis=1, inplace=True)
+        # Save the genotypes as well
+        infection_genotypes = get_genotype_from_root_barcode(barcodes, np.vstack(root_lookup["genotype"].values))
+        infection_genotypes_df = _make_dataframe(full_df, infection_genotypes)
+        infection_genotypes_df.to_csv("infection_genotypes.csv", index=False)
 
-    # Save the new dataframe
-    full_df.to_csv(filename, index=False)
 
+def get_genotype_from_root_barcode(infection_root_barcodes, root_genotypes):
+    # infection_root_barcodes is an A x N_barcode_positions matrix where each row is a barcode of roots from actual infections
+    # root_genotypes is an n_roots x N_barcode_positions matrix where each row is a genotype for the corresponding root.
+    # Return an A x N_barcode positions matrix where each row is the genotype of the corresponding root barcode
+    infection_genotypes = np.zeros_like(infection_root_barcodes)
+
+    # Loop over columns, since these are each a single SNP
+    for i in range(infection_genotypes.shape[1]):
+        infection_genotypes[:, i] = root_genotypes[infection_root_barcodes[:, i], i]
+
+    return infection_genotypes
 
 def get_n_unique_strains(human_infection_lookup):
     # Get total number of unique genotypes across all infections
@@ -85,20 +110,20 @@ def polygenomic_relatedness(genotype_df):
 
 def compute_standard_metrics():
     # Try to save space:
-    dtype = {f"SNP_{i}": np.int8 for i in range(24)}
+    dtype = {f"SNP_{i}": np.int16 for i in range(24)}
     dtype["human_id"] = np.int16
 
     print("Loading data...")
-    df = pd.read_csv("full_df.csv", dtype=dtype)
-    all_genomes = df[[f"SNP_{i}" for i in range(24)]].values
-    df["genotype"] = all_genomes.tolist()
+    infection_genotypes_df = pd.read_csv("infection_genotypes.csv", dtype=dtype)
+    all_genomes = infection_genotypes_df[[f"SNP_{i}" for i in range(24)]].values
+    infection_genotypes_df["genotype"] = all_genomes.tolist()
 
     print("Calculating allele frequencies...")
     # Loop over each timestep and calculate allele frequencies:
-    all_data = np.zeros([df["t"].nunique(), 24])
+    all_data = np.zeros([infection_genotypes_df["t"].nunique(), 24])
     i=0
     t_plot = np.array([])
-    for t, sdf in df.groupby("t"):
+    for t, sdf in infection_genotypes_df.groupby("t"):
         all_data[i] = np.mean(np.vstack(sdf["genotype"].values), axis=0)
         t_plot = np.append(t_plot, t)
         i+=1
@@ -118,11 +143,11 @@ def compute_standard_metrics():
     all_IBS = np.array([])
     t_plot = np.array([])
     tstep = 50
-    for t in df["t"].unique():
+    for t in infection_genotypes_df["t"].unique():
         if t % tstep == 0: # Only calculate IBS every tstep timesteps
             print(t)
             t_plot = np.append(t_plot, t)
-            all_genotypes = np.vstack(df["genotype"][df["t"]==t].values)
+            all_genotypes = np.vstack(infection_genotypes_df["genotype"][infection_genotypes_df["t"]==t].values)
             all_IBS = np.append(all_IBS, ibs(all_genotypes))
 
     # Plot IBS over time
@@ -133,10 +158,42 @@ def compute_standard_metrics():
     plt.title("Identity-by-state distance over time")
     plt.savefig("ibs.png")
 
+    # Check whether infection_root_barcodes.csv exists
+    try:
+        infection_root_barcodes_df = pd.read_csv("infection_root_barcodes.csv", dtype=dtype)
+        all_genomes = infection_root_barcodes_df[[f"SNP_{i}" for i in range(24)]].values
+        infection_root_barcodes_df["genotype"] = all_genomes.tolist()
+    except FileNotFoundError:
+        infection_root_barcodes_df = pd.DataFrame({"t": [], "human_id": [], "genotype": []})
+
+    # Calculate IBD every N timesteps
+    if infection_root_barcodes_df.shape[0] > 0:
+        print("Calculating IBD...")
+        # Compute identity-by-descent distance between all pairs of genotypes
+        all_IBD = np.array([])
+        t_plot = np.array([])
+        for t in infection_root_barcodes_df["t"].unique():
+            if t % tstep == 0:  # Only calculate IBD every tstep timesteps
+                print(t)
+                t_plot = np.append(t_plot, t)
+                all_genotypes = np.vstack(infection_root_barcodes_df["genotype"][infection_root_barcodes_df["t"] == t].values)
+                all_IBD = np.append(all_IBD, ibs(all_genotypes))
+
+        # Plot IBD over time
+        plt.figure(figsize=(10, 10), dpi=300)
+        plt.plot(t_plot, all_IBD)
+        plt.xlabel("Time")
+        plt.ylabel("Mean IBD")
+        plt.title("Identity-by-descent distance over time")
+        plt.savefig("ibd.png")
+
+
+
+
     print("Plotting COI...")
     # Plot COI distribution at arbitrary time
     t = 1400
-    n_genotypes = df[df["t"]==t].groupby("human_id").agg({"genotype": lambda x: len(x)}).reset_index()
+    n_genotypes = infection_genotypes_df[infection_genotypes_df["t"]==t].groupby("human_id").agg({"genotype": lambda x: len(x)}).reset_index()
     plt.figure()
     plt.hist(n_genotypes["genotype"], bins=range(1, 20), density=True)
     plt.xlabel("Number of genotypes")
@@ -186,17 +243,25 @@ def visualize_allele_freq_differences():
 
 
 if __name__ == "__main__":
-    df = pd.read_csv("full_df.csv")
+
+    # If infection_genotypes.csv exists, load it
+    infection_genotypes_df = pd.read_csv("infection_genotypes.csv")
 #     df["genotype"] = df["genotype"].apply(lambda s: np.fromstring(s.strip("[]"), sep=' '))  # Remove brackets
-    all_genomes = df[[f"SNP_{i}" for i in range(24)]].values
-    df["genotype"] = all_genomes.tolist()
+    all_genomes = infection_genotypes_df[[f"SNP_{i}" for i in range(24)]].values
+    infection_genotypes_df["genotype"] = all_genomes.tolist()
+
+    # If infection_root_barcodes.csv exists, load it
+    try:
+        infection_root_barcodes_df = pd.read_csv("infection_root_barcodes.csv")
+        all_genomes = infection_root_barcodes_df[[f"SNP_{i}" for i in range(24)]].values
+        infection_root_barcodes_df["genotype"] = all_genomes.tolist()
+    except FileNotFoundError:
+        infection_root_barcodes_df = pd.DataFrame({"t": [], "human_id": [], "genotype": []})
 
     # Loop over each timestep and calculate allele frequencies:
-    all_data = np.zeros([df["t"].nunique(), 24])
-    for t, sdf in df.groupby("t"):
+    all_data = np.zeros([infection_genotypes_df["t"].nunique(), 24])
+    for t, sdf in infection_genotypes_df.groupby("t"):
         all_data[t] = np.mean(np.vstack(sdf["genotype"].values), axis=0)
-        # all_genotypes = np.vstack(sdf["genotype"].values)
-        # allele_freqs = np.mean(all_genotypes, axis=0)
 
     # Plot allele frequencies
     # if False:
@@ -220,15 +285,14 @@ if __name__ == "__main__":
 
     # Compute identity-by-state distance between all pairs of genotypes
 
-    # if False:
-    # Calculate IBS every 20 timesteps
+    # Calculate IBS every N timesteps
     all_IBS = np.array([])
     t_plot = np.array([])
-    for t in df["t"].unique():
+    for t in infection_genotypes_df["t"].unique():
         if t % 20 == 0:
             print(t)
             t_plot = np.append(t_plot, t)
-            all_genotypes = np.vstack(df["genotype"][df["t"]==t].values)
+            all_genotypes = np.vstack(infection_genotypes_df["genotype"][infection_genotypes_df["t"]==t].values)
             all_IBS = np.append(all_IBS, ibs(all_genotypes))
 
     # Plot IBS over time
@@ -240,9 +304,30 @@ if __name__ == "__main__":
     plt.savefig("ibs.png")
     plt.show()
 
+    # Calculate IBD every N timesteps
+    if infection_root_barcodes_df.shape[0] > 0:
+        all_IBD = np.array([])
+        t_plot = np.array([])
+        for t in infection_root_barcodes_df["t"].unique():
+            if t % 20 == 0:
+                print(t)
+                t_plot = np.append(t_plot, t)
+                all_genotypes = np.vstack(infection_root_barcodes_df["genotype"][infection_root_barcodes_df["t"]==t].values)
+                all_IBD = np.append(all_IBD, ibs(all_genotypes))
+
+        # Plot IBS over time
+        plt.figure(figsize=(10,10), dpi=300)
+        plt.plot(all_IBD)
+        plt.xlabel("Time")
+        plt.ylabel("Mean IBD")
+        plt.title("Identity-by-descent distance over time")
+        plt.savefig("ibd.png")
+        plt.show()
+
+
     # Plot COI distribution at arbitrary time
     t = 1450
-    n_genotypes = df[df["t"]==t].groupby("human_id").agg({"genotype": lambda x: len(x)}).reset_index()
+    n_genotypes = infection_genotypes_df[infection_genotypes_df["t"]==t].groupby("human_id").agg({"genotype": lambda x: len(x)}).reset_index()
     plt.figure()
     plt.hist(n_genotypes["genotype"], bins=range(1, 20), density=True)
     plt.xlabel("Number of genotypes")

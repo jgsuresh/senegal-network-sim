@@ -231,6 +231,7 @@ def get_max_infection_id(infection_lookup):
 @profile
 def evolve(human_infection_lookup,
            vector_lookup,
+           root_lookup,
            run_parameters,
            biting_rates,
            ):
@@ -242,15 +243,16 @@ def evolve(human_infection_lookup,
     # vector_lookup["n_spo_genotypes"] = vector_lookup["sporozoite_genotypes"].apply(len)
     human_infection_lookup = vector_to_human_transmission(human_infection_lookup, vector_lookup, biting_rates, **run_parameters)
     if include_importations:
-        human_infection_lookup = import_human_infections(human_infection_lookup, run_parameters)
+        human_infection_lookup, root_lookup = import_human_infections(human_infection_lookup, root_lookup, run_parameters)
 
     # Timestep bookkeeping: clear infections which have completed their duration, update vector clocks
     human_infection_lookup, vector_lookup = timestep_bookkeeping(human_infection_lookup, vector_lookup)
-    return human_infection_lookup, vector_lookup
+    return human_infection_lookup, vector_lookup, root_lookup
 
 
 def initial_setup(run_parameters):
     N_initial_infections = run_parameters["N_initial_infections"]
+    track_roots = run_parameters.get("track_roots", False)
 
     # Generate initial infections
     human_infection_lookup = initialize_new_human_infections(N=N_initial_infections,
@@ -258,13 +260,28 @@ def initial_setup(run_parameters):
                                                              run_parameters=run_parameters,
                                                              initial_sim_setup=True,
                                                              initialize_genotypes=True)
+    # Add infection IDs
+    human_infection_lookup["infection_id"] = np.arange(N_initial_infections)
+
+    if track_roots:
+        root_lookup = human_infection_lookup[["human_id", "genotype"]].copy()
+        root_lookup["root_id"] = np.arange(N_initial_infections)
+
+        # Replace "genotype" in human_infection_lookup with root id
+        N_barcode_positions = run_parameters["N_barcode_positions"]
+        all_roots_matrix = np.arange(N_initial_infections).repeat(N_barcode_positions).reshape(N_initial_infections,
+                                                                                               N_barcode_positions)
+        human_infection_lookup["genotype"] = [row[0] for row in np.vsplit(all_roots_matrix, N_initial_infections)]
+    else:
+        root_lookup = pd.DataFrame({"human_id": [], "genotype": [], "root_id": []})
 
     # Generate vector lookup
     vector_lookup = pd.DataFrame({"vector_id": [],
                                   "gametocyte_genotypes": [],
                                   "sporozoite_genotypes": [],
                                   "days_until_next_bite": []})
-    return human_infection_lookup, vector_lookup
+
+    return human_infection_lookup, vector_lookup, root_lookup
 
 
 @profile
@@ -278,6 +295,7 @@ def run_sim(run_parameters, verbose=True):
     demographics_on = run_parameters.get("demographics_on", False)
     save_all_data = run_parameters.get("save_all_data", True)
     timesteps_between_outputs = run_parameters.get("timesteps_between_outputs", 1)
+    track_roots = run_parameters.get("track_roots", False)
 
     human_ids = np.arange(N_individuals)
     run_parameters["human_ids"] = human_ids
@@ -287,7 +305,7 @@ def run_sim(run_parameters, verbose=True):
         run_parameters["human_ages"] = draw_individual_ages(N_individuals)
 
     # Set up initial conditions
-    human_infection_lookup, vector_lookup = initial_setup(run_parameters)
+    human_infection_lookup, vector_lookup, root_lookup = initial_setup(run_parameters)
 
     # Set up summary statistics
     summary_statistics = pd.DataFrame({"time": [],
@@ -295,8 +313,9 @@ def run_sim(run_parameters, verbose=True):
                                        "n_humans_infected": [],
                                        "n_infected_vectors": [],
                                        "n_unique_genotypes": [],
-                                       "polygenomic_fraction": [],
-                                       "coi": []
+                                       # "polygenomic_fraction": [],
+                                       # "coi": [],
+                                       "n_roots": []
                                        })
 
     # Set up full dataframe for post hoc analysis
@@ -309,15 +328,20 @@ def run_sim(run_parameters, verbose=True):
 
     # Loop over timesteps
     for t in range(sim_duration):
-        human_infection_lookup, vector_lookup = evolve(human_infection_lookup, vector_lookup, biting_rates=biting_rates, run_parameters=run_parameters)
+        human_infection_lookup, vector_lookup, root_lookup = evolve(human_infection_lookup,
+                                                                    vector_lookup,
+                                                                    root_lookup,
+                                                                    biting_rates=biting_rates,
+                                                                    run_parameters=run_parameters)
 
         this_timestep_summary = pd.DataFrame({"time": [t+1],
                                               "n_infections": [human_infection_lookup.shape[0]],
                                               "n_humans_infected": [human_infection_lookup["human_id"].nunique()],
                                               "n_infected_vectors": [vector_lookup.shape[0]],
-                                              "n_unique_genotypes": get_n_unique_strains(human_infection_lookup)})
-                                              # "polygenomic_fraction": polygenomic_fraction(human_infection_lookup),
-                                              # "coi": complexity_of_infection(human_infection_lookup)})
+                                              "n_unique_genotypes": get_n_unique_strains(human_infection_lookup),
+                                              "n_roots": [root_lookup.shape[0]]})
+        # "polygenomic_fraction": polygenomic_fraction(human_infection_lookup),
+        # "coi": complexity_of_infection(human_infection_lookup)})
 
         if t > 0 and t % 20 == 0 and verbose:
             pd.set_option('display.max_columns', 10)
@@ -340,7 +364,7 @@ def run_sim(run_parameters, verbose=True):
     plt.plot(summary_statistics["time"], summary_statistics["n_humans_infected"], label="Number of infected humans")
     plt.plot(summary_statistics["time"], summary_statistics["n_infected_vectors"], label="Number of vectors")
     plt.plot(summary_statistics["time"], summary_statistics["n_unique_genotypes"], label="Number of unique genotypes")
-    plt.plot(summary_statistics["time"], summary_statistics["polygenomic_fraction"], label="Polygenomic fraction")
+    plt.plot(summary_statistics["time"], summary_statistics["n_roots"], label="Number of roots")
     plt.legend()
     plt.savefig("transmission.png")
 
@@ -350,7 +374,11 @@ def run_sim(run_parameters, verbose=True):
     vector_lookup.to_csv("vector_lookup.csv", index=False)
     human_infection_lookup.to_csv("human_infection_lookup.csv", index=False)
     # full_df.to_csv("full_df.csv", index=False)
-    save_genotypes(full_df, "full_df.csv")
+
+    if track_roots:
+        save_genotypes(full_df, root_lookup)
+    else:
+        save_genotypes(full_df)
 
     # Save info about humans
     human_info = pd.DataFrame({"human_id": human_ids,
@@ -359,6 +387,10 @@ def run_sim(run_parameters, verbose=True):
         human_info["age"] = run_parameters["human_ages"]
     human_info.to_csv("human_info.csv", index=False)
 
+    if track_roots:
+        root_lookup.to_csv("root_lookup.csv", index=False)
+
+    pass
 
 if __name__ == "__main__":
     run_parameters = load_parameters("config.yaml")
