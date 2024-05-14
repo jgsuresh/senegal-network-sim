@@ -1,0 +1,23 @@
+Bootstrap: library
+From: ubuntu:22.04
+
+%files
+    Assets/requirements.txt /opt/requirements.txt
+
+%post
+    apt-get update \
+        && apt-get install -y locales \
+        && apt-get install -y tzdata \
+        && apt-get install -y git \
+        && apt-get install -y software-properties-common \
+        && add-apt-repository universe \
+        && apt-get update \
+        && apt-get install -y python3 \
+        && apt-get install -y python3-pip \
+        && pip3 install --no-cache-dir setuptools
+
+    # if we don't clean this, it bloats the generated image size by a lot!
+    apt-get clean
+
+    # install base requirements for the model (everything but the model code itself)
+    pip3 install -r /opt/requirements.txt -i https://packages.idmod.org/api/pypi/pypi-production/simple
