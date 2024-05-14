@@ -122,7 +122,7 @@ def gametocyte_to_oocyst_offspring_genotypes_numba(gametocyte_genotypes, num_ooc
     else:
         n_oocyst = num_oocysts(model=num_oocyst_model, min_oocysts=1)
 
-        offspring_genotypes = np.empty((n_oocyst*4, gametocyte_genotypes.shape[1]), dtype=np.int32)
+        offspring_genotypes = np.empty((n_oocyst*4, gametocyte_genotypes.shape[1]), dtype=np.int64)
 
         for i in prange(n_oocyst):
             parent_indices = np.random.randint(0, len(gametocyte_genotypes), 2)
