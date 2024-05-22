@@ -157,6 +157,7 @@ g2 = np.random.randint(0, 3, 10000)
 
 start = time.perf_counter()
 for _ in range(1000):
+    pass
     # m1(g1, g2)
     # m2(g1, g2)
     # m1_parallel(g1, g2)
