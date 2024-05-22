@@ -1,5 +1,5 @@
 import numpy as np
-from line_profiler_pycharm import profile
+# from line_profiler_pycharm import profile
 from numba import njit, vectorize
 
 from network_sim.meiosis_models.super_simple import gametocyte_to_sporozoite_genotypes_numba
@@ -157,7 +157,7 @@ def simulate_bites(prob_transmit):
         if np.sum(successes) >= 1:
             return list(successes)
 
-@profile
+# @profile
 def determine_which_genotypes_mosquito_picks_up(human_id, infection_lookup):
     # Note: this function is only called if mosquito is guaranteed to be infected by at least one genotype
 
@@ -177,7 +177,7 @@ def determine_which_genotypes_mosquito_picks_up(human_id, infection_lookup):
         return list(this_human["genotype"][successes])
 
 
-@profile
+# @profile
 def determine_sporozoite_genotypes(vector_lookup):
     # Determine sporozoite genotypes (i.e. the genotypes that each vector will transmit)
 

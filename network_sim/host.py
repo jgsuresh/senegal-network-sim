@@ -3,7 +3,7 @@ import pandas as pd
 from numba import vectorize
 from scipy.special import gamma
 
-from network_sim.vector_heterogeneity import age_based_biting_risk, age_based_surface_area
+from network_sim.vector import age_based_surface_area
 
 
 def sub_saharan_age_distribution():

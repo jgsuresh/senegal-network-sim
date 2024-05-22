@@ -40,7 +40,7 @@ def create_experiment_with_sif(platform):
     setParamFile = partial(param_update, param="infile")
 
     builder = SimulationBuilder()
-    builder.add_sweep_definition(setParamFile, [ 'experiments/240507-03/config.yaml' ])
+    builder.add_sweep_definition(setParamFile, [ 'experiments/240522-01/config.yaml' ])
 
     ts.add_builder(builder)
 #    add_work_order(ts, file_path=os.path.join(Path(__file__).parent, "WorkOrder.json"))

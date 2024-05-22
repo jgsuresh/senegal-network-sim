@@ -14,4 +14,5 @@ run_sim(parameters)
 ```
 
 ## On COMPS
-?
+- Make sure requirements_for_sim.txt is up to date and is limited to the packages needed for the simulation.
+- Run network_sim/singularity/create_sif.py to 

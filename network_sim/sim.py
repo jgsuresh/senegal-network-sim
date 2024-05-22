@@ -1,12 +1,12 @@
-from line_profiler_pycharm import profile
+# from line_profiler_pycharm import profile
 
 import numpy as np
 import pandas as pd
 
 from network_sim.host import draw_individual_ages, \
-    draw_infection_durations, initialize_new_human_infections, modify_human_infection_lookup_by_age
+    initialize_new_human_infections
 from network_sim.importations import import_human_infections
-from network_sim.vector_heterogeneity import determine_biting_rates, \
+from network_sim.vector import determine_biting_rates, \
     determine_sporozoite_genotypes, \
     determine_which_genotypes_mosquito_picks_up, \
     draw_infectious_bite_number
@@ -17,7 +17,7 @@ from network_sim.metrics import get_n_unique_strains, save_genotypes
 from network_sim.run_helpers import load_parameters
 
 
-@profile
+# @profile
 def human_to_vector_transmission(infection_lookup,
                                  vector_lookup,
                                  biting_rates,
@@ -137,7 +137,7 @@ def human_to_vector_transmission(infection_lookup,
 #     # Determine infection durations and infectiousness
 
 
-@profile
+# @profile
 def vector_to_human_transmission(infection_lookup,
                                  vector_lookup,
                                  biting_rates,
@@ -192,7 +192,7 @@ def vector_to_human_transmission(infection_lookup,
             return infection_lookup
 
 
-@profile
+# @profile
 def timestep_bookkeeping(human_infection_lookup, vector_lookup):
     # Update infections and clear any which have completed their duration
     if not human_infection_lookup.empty:
@@ -228,7 +228,7 @@ def get_max_infection_id(infection_lookup):
 
 
 # @jit(forceobj=True)
-@profile
+# @profile
 def evolve(human_infection_lookup,
            vector_lookup,
            root_lookup,
@@ -284,7 +284,7 @@ def initial_setup(run_parameters):
     return human_infection_lookup, vector_lookup, root_lookup
 
 
-@profile
+# @profile
 def run_sim(run_parameters, verbose=True):
 
     if verbose:

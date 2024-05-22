@@ -73,13 +73,26 @@ def allele_frequencies(human_infection_lookup):
     return allele_frequencies
 
 @njit(parallel=True)
-def ibs(all_genotypes):
+def ibs_parallel(all_genotypes):
     # Loop over all pairs of genotypes and calculate IBS
     n = all_genotypes.shape[0]
     IBS = np.zeros((n, n))
     # IBS = -1*np.ones((n, n), dtype=np.int32)
     for i in prange(n):
         for j in prange(n):
+            if i >= j:
+                IBS[i, j] = np.sum(all_genotypes[i] == all_genotypes[j])/24
+            else:
+                IBS[i,j] = np.nan
+    return np.nanmean(IBS)
+@njit()
+def ibs_singlethread(all_genotypes):
+    # Loop over all pairs of genotypes and calculate IBS
+    n = all_genotypes.shape[0]
+    IBS = np.zeros((n, n))
+    # IBS = -1*np.ones((n, n), dtype=np.int32)
+    for i in range(n):
+        for j in range(n):
             if i >= j:
                 IBS[i, j] = np.sum(all_genotypes[i] == all_genotypes[j])/24
             else:
@@ -101,14 +114,14 @@ def polygenomic_relatedness(genotype_df):
     genotype_df = genotype_df.merge(polygenomic, on=["human_id", "t"], how="inner")
 
     # Calculate IBS for each individual
-    relatedness = genotype_df.groupby(["human_id","t"])["genotype"].apply(lambda x: np.vstack(x)).apply(ibs).reset_index(name="polygenomic_ibs")
+    relatedness = genotype_df.groupby(["human_id","t"])["genotype"].apply(lambda x: np.vstack(x)).apply(ibs_parallel).reset_index(name="polygenomic_ibs")
 
     # Add COI to the relatedness dataframe
     relatedness = relatedness.merge(coi, on=["human_id", "t"], how="left")
     return relatedness
 
 
-def compute_standard_metrics():
+def compute_standard_metrics(multithreading_allowed):
     # Try to save space:
     dtype = {f"SNP_{i}": np.int16 for i in range(24)}
     dtype["human_id"] = np.int16
@@ -139,6 +152,11 @@ def compute_standard_metrics():
     plt.savefig("allele_freqs.png")
 
     print("Calculating IBS...")
+    if multithreading_allowed:
+        ibs = ibs_parallel
+    else:
+        ibs = ibs_singlethread
+
     # Compute identity-by-state distance between all pairs of genotypes
     all_IBS = np.array([])
     t_plot = np.array([])
@@ -177,7 +195,7 @@ def compute_standard_metrics():
                 print(t)
                 t_plot = np.append(t_plot, t)
                 all_genotypes = np.vstack(infection_root_barcodes_df["genotype"][infection_root_barcodes_df["t"] == t].values)
-                all_IBD = np.append(all_IBD, ibs(all_genotypes))
+                all_IBD = np.append(all_IBD, ibs_parallel(all_genotypes))
 
         # Plot IBD over time
         plt.figure(figsize=(10, 10), dpi=300)
@@ -293,7 +311,7 @@ if __name__ == "__main__":
             print(t)
             t_plot = np.append(t_plot, t)
             all_genotypes = np.vstack(infection_genotypes_df["genotype"][infection_genotypes_df["t"]==t].values)
-            all_IBS = np.append(all_IBS, ibs(all_genotypes))
+            all_IBS = np.append(all_IBS, ibs_parallel(all_genotypes))
 
     # Plot IBS over time
     plt.figure(figsize=(10,10), dpi=300)
@@ -313,7 +331,7 @@ if __name__ == "__main__":
                 print(t)
                 t_plot = np.append(t_plot, t)
                 all_genotypes = np.vstack(infection_root_barcodes_df["genotype"][infection_root_barcodes_df["t"]==t].values)
-                all_IBD = np.append(all_IBD, ibs(all_genotypes))
+                all_IBD = np.append(all_IBD, ibs_parallel(all_genotypes))
 
         # Plot IBS over time
         plt.figure(figsize=(10,10), dpi=300)
