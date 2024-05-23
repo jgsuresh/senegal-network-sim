@@ -1,10 +1,10 @@
 import numpy as np
 import pandas as pd
-from line_profiler_pycharm import profile
+# from line_profiler_pycharm import profile
 
 from network_sim.host import initialize_new_human_infections
 
-@profile
+# @profile
 def import_human_infections(human_infection_lookup, root_lookup, run_parameters):
     importations_per_day = run_parameters.get("importations_per_day")
     importations_per_day = float(importations_per_day)

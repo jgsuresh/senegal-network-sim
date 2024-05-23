@@ -2,7 +2,7 @@ Bootstrap: library
 From: ubuntu:22.04
 
 %files
-    Assets/requirements.txt /opt/requirements.txt
+    Assets/requirements.txt /opt/requirements_for_sim.txt
 
 %post
     apt-get update \
@@ -20,4 +20,4 @@ From: ubuntu:22.04
     apt-get clean
 
     # install base requirements for the model (everything but the model code itself)
-    pip3 install -r /opt/requirements.txt -i https://packages.idmod.org/api/pypi/pypi-production/simple
+    pip3 install -r /opt/requirements_for_sim.txt -i https://packages.idmod.org/api/pypi/pypi-production/simple
