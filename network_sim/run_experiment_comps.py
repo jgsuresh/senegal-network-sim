@@ -27,20 +27,24 @@ def create_experiment_with_sif(platform):
 
     task = CommandTask(command="foo")  # filled in by add_schedule_config() later
     excl_by_name = partial(exclude_filter, patterns=["idmtools.log", "COMPS_log.log", "singularity", ".ipynb", "\\experiments\\"])
+    # Add assets to the task from the current directory, excluding files that match the filter, and set the relative path to the image name
     task.common_assets.add_assets(AssetCollection.from_directory('.', filters=[ excl_by_name ], relative_path=image_name))
     task.common_assets.add_assets(ac)
 
+    # Create a TemplatedSimulations object with the task as the base task
     ts = TemplatedSimulations(base_task=task)
 
     # Update and set simulation configuration parameters
     def param_update(simulation, param, value):
         simulation.task.transient_assets.add_asset(value)
-        return #simulation.task.set_parameter(param, value)
+        return {param: value}#simulation.task.set_parameter(param, value)
 
     setParamFile = partial(param_update, param="infile")
 
     builder = SimulationBuilder()
-    builder.add_sweep_definition(setParamFile, [ 'experiments/240522-01/config.yaml' ])
+    builder.add_sweep_definition(setParamFile, ['experiments/240522-01/config.yaml',
+                                                'experiments/240523-01/config.yaml'])
+    # builder.add_sweep_definition(set)
 
     ts.add_builder(builder)
 #    add_work_order(ts, file_path=os.path.join(Path(__file__).parent, "WorkOrder.json"))

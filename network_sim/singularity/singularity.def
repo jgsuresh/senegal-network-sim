@@ -2,7 +2,7 @@ Bootstrap: library
 From: ubuntu:22.04
 
 %files
-    Assets/requirements.txt /opt/requirements_for_sim.txt
+    Assets/requirements_for_sim.txt /opt/requirements_for_sim.txt
 
 %post
     apt-get update \
