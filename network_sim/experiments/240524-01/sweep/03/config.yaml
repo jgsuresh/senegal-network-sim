@@ -4,7 +4,7 @@ N_initial_infections: 4000
 age_modifies_biting: false
 age_modifies_infectiousness: false
 bites_from_infected_mosquito_distribution: constant
-daily_bite_rate: 0.001
+daily_bite_rate: 0.33
 daily_bite_rate_distribution: constant
 demographics_on: false
 importation_allele_freq: 0.2

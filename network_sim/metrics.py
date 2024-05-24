@@ -48,6 +48,8 @@ def get_genotype_from_root_barcode(infection_root_barcodes, root_genotypes):
 
 def get_n_unique_strains(human_infection_lookup):
     # Get total number of unique genotypes across all infections
+    if human_infection_lookup.shape[0] == 0:
+        return 0
     all_genotypes = np.vstack(human_infection_lookup["genotype"].values)
     unique_genotypes = np.unique(all_genotypes, axis=0)
     n_unique_genotypes = unique_genotypes.shape[0]

@@ -22,12 +22,14 @@ def human_to_vector_transmission(infection_lookup,
                                  vector_lookup,
                                  biting_rates,
                                  **kwargs):
+    # This function simulates the transmission of parasites from humans to vectors
+
     N_individuals = kwargs.get("N_individuals", 100)
     prob_survive_to_infectiousness = kwargs.get("prob_survive_to_infectiousness", 1)
     individual_infectiousness = kwargs.get("individual_infectiousness", 0.01)
     vector_picks_up_all_strains = kwargs.get("vector_picks_up_all_strains", True)
-    bites_from_infected_mosquito_distribution = kwargs.get("bites_from_infected_mosquito_distribution", "constant")
-    mean_bites_from_infected_mosquito = kwargs.get("mean_bites_from_infected_mosquito", 1)
+    # bites_from_infected_mosquito_distribution = kwargs.get("bites_from_infected_mosquito_distribution", "constant")
+    # mean_bites_from_infected_mosquito = kwargs.get("mean_bites_from_infected_mosquito", 1)
 
     #todo Potential speedup, start with only infected people
 
@@ -39,6 +41,10 @@ def human_to_vector_transmission(infection_lookup,
 
     # Remove uninfected people to speed up computation
     human_lookup = human_lookup[human_lookup['human_id'].isin(infection_lookup['human_id'])]
+
+    # If no humans are infected, return vector lookup unchanged
+    if human_lookup.shape[0] == 0:
+        return vector_lookup
 
     # Calculate how many of the biting mosquitos will survive to infect
     if prob_survive_to_infectiousness == 1:
