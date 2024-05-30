@@ -259,6 +259,7 @@ def evolve(human_infection_lookup,
 def initial_setup(run_parameters):
     N_initial_infections = run_parameters["N_initial_infections"]
     track_roots = run_parameters.get("track_roots", False)
+    relative_biting_risk = run_parameters.get("relative_biting_risk")
 
     # Generate initial infections
     human_infection_lookup = initialize_new_human_infections(N=N_initial_infections,
@@ -299,6 +300,7 @@ def run_sim(run_parameters, verbose=True):
     sim_duration = run_parameters["sim_duration"]
     N_individuals = run_parameters["N_individuals"]
     demographics_on = run_parameters.get("demographics_on", False)
+    immunity_on = run_parameters.get("immunity_on", False)
     save_all_data = run_parameters.get("save_all_data", True)
     timesteps_between_outputs = run_parameters.get("timesteps_between_outputs", 1)
     track_roots = run_parameters.get("track_roots", False)
@@ -309,6 +311,11 @@ def run_sim(run_parameters, verbose=True):
         if verbose:
             print("Demographics are on! Drawing individual ages.")
         run_parameters["human_ages"] = draw_individual_ages(N_individuals)
+
+    #Note: currently assumes that relative biting rates are constant for each person across the simulation.
+    biting_rates, relative_biting_risk = determine_biting_rates(N_individuals, run_parameters)
+    run_parameters["biting_rates"] = biting_rates
+    run_parameters["relative_biting_risk"] = relative_biting_risk
 
     # Set up initial conditions
     human_infection_lookup, vector_lookup, root_lookup = initial_setup(run_parameters)
@@ -321,7 +328,8 @@ def run_sim(run_parameters, verbose=True):
                                        "n_unique_genotypes": [],
                                        # "polygenomic_fraction": [],
                                        # "coi": [],
-                                       "n_roots": []
+                                       "n_roots": [],
+                                       "eir": []
                                        })
 
     # Set up full dataframe for post hoc analysis
@@ -329,8 +337,7 @@ def run_sim(run_parameters, verbose=True):
     full_df["t"] = 0
     timesteps_to_save = np.arange(0, sim_duration, timesteps_between_outputs)
 
-    #Note: currently assumes that relative biting rates are constant for each person across the simulation.
-    biting_rates = determine_biting_rates(N_individuals, run_parameters)
+
 
     # Loop over timesteps
     for t in range(sim_duration):

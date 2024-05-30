@@ -213,4 +213,6 @@ def determine_biting_rates(N_individuals, run_parameters):
     abr = age_based_biting_risk(N_individuals, run_parameters)
     hbr = heterogeneous_biting_risk(N_individuals, run_parameters)
 
-    return np.ones(N_individuals) * daily_bite_rate * abr * hbr
+    biting_rates = np.ones(N_individuals) * daily_bite_rate * abr * hbr
+
+    return biting_rates, hbr

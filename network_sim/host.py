@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-from numba import vectorize
 from scipy.special import gamma
 
 from network_sim.vector import age_based_surface_area
@@ -34,33 +33,6 @@ def draw_individual_ages(N_individuals):
 
     return ages
 
-@vectorize
-def age_based_infectiousness_factor(human_age):
-    human_age = float(human_age)
-
-    # Modify infectiousness based on human_age. Younger people are more infectious
-    if human_age < 5.:
-        return 1.
-    if human_age < 15.:
-        return 0.8
-    if human_age < 20.:
-        return 0.65
-    if human_age >= 20.:
-        return 0.5
-    return 1.
-
-def modify_human_infection_lookup_by_age(human_infection_lookup, human_ids, human_ages):
-    # Infectiousness modified based on age
-    abif = age_based_infectiousness_factor(human_ages)
-    human_lookup = pd.DataFrame({"human_id": human_ids,
-                                 "abif": abif})
-
-    # Merge with human_infection_lookup
-    human_infection_lookup = human_infection_lookup.merge(human_lookup, on="human_id")
-    human_infection_lookup["infectiousness"] *= human_infection_lookup["abif"]
-    # Drop the abif column
-    human_infection_lookup.drop(columns=["abif"], inplace=True)
-    return human_infection_lookup
 
 def initialize_new_human_infections(N,
                                     run_parameters,
@@ -68,21 +40,29 @@ def initialize_new_human_infections(N,
                                     initialize_genotypes=False,
                                     allele_freq=None,
                                     initial_sim_setup=False):
+    # Create new human infections. This is called under 3 conditions:
+    # 1. When the simulation is starting from scratch
+    # 2. When a new human is infected through a vector bite
+    # 3. Imported infection
+
     human_ids = run_parameters["human_ids"]
     N_barcode_positions = run_parameters["N_barcode_positions"]
     demographics_on = run_parameters.get("demographics_on", False)
-    age_modifies_infectiousness = run_parameters.get("age_modifies_infectiousness", False)
     track_roots = run_parameters.get("track_roots", False)
+    immunity_on = run_parameters.get("immunity_on", False)
 
-    infectiousness = draw_infectiousness(N, run_parameters)
-
-    infection_duration = draw_infection_durations(N, run_parameters)
-    if initial_sim_setup:
-        # If sim is starting now, then we are seeing somewhere in the middle of the infection
-        days_until_clearance = np.random.randint(1, infection_duration+1)
+    if immunity_on:
+        raise NotImplementedError
     else:
-        # Otherwise, we are starting from the beginning of the infection
-        days_until_clearance = infection_duration
+        infectiousness = draw_infectiousness(N, run_parameters)
+
+        infection_duration = draw_infection_durations(N, run_parameters)
+        if initial_sim_setup:
+            # If sim is starting now, then we are seeing somewhere in the middle of the infection
+            days_until_clearance = np.random.randint(1, infection_duration+1)
+        else:
+            # Otherwise, we are starting from the beginning of the infection
+            days_until_clearance = infection_duration
 
     if humans_to_infect is None:
         humans_to_infect = np.random.choice(human_ids, N, replace=True)
@@ -91,10 +71,6 @@ def initialize_new_human_infections(N,
     human_infection_lookup = pd.DataFrame({"human_id": humans_to_infect,
                                            "infectiousness": infectiousness,
                                            "days_until_clearance": days_until_clearance})
-
-    if demographics_on and age_modifies_infectiousness:
-        # Infectiousness modified based on age
-        modify_human_infection_lookup_by_age(human_infection_lookup, human_ids, run_parameters["human_ages"])
 
     if initialize_genotypes:
         if allele_freq is None:
