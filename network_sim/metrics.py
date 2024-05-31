@@ -123,7 +123,7 @@ def polygenomic_relatedness(genotype_df):
     return relatedness
 
 
-def compute_standard_metrics(multithreading_allowed):
+def compute_standard_metrics(multithreading_allowed=True):
     # Try to save space:
     dtype = {f"SNP_{i}": np.int16 for i in range(24)}
     dtype["human_id"] = np.int16

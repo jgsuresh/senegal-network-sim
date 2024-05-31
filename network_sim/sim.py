@@ -182,11 +182,7 @@ def vector_to_human_transmission(infection_lookup,
 
             # Generate infectiousness and infection duration for each new infection
             new_infection_stats = initialize_new_human_infections(N_new_infections, kwargs, initialize_genotypes=False, humans_to_infect=list(new_infections["human_id"]))
-            # merge on human_id doesn't work since there can be multiple infections per human, e.g. multiple sporozoite genotypes
-            # new_infections3 = pd.merge(new_infections2, new_infection_stats, on="human_id")
-            # new_infections3 = pd.concat([new_infections2, new_infection_stats[["infectiousness", "days_until_clearance"]]], axis=1)
-            new_infections["infectiousness"] = new_infection_stats["infectiousness"]
-            new_infections["days_until_clearance"] = new_infection_stats["days_until_clearance"]
+            new_infections = pd.merge(new_infections, new_infection_stats, how="left", on="human_id")
 
             # Add infection id
             max_inf_id = infection_lookup["infection_id"].max()
@@ -194,6 +190,7 @@ def vector_to_human_transmission(infection_lookup,
 
             # Append new infections to infection lookup
             infection_lookup = pd.concat([infection_lookup, new_infections], ignore_index=True)
+
 
             return infection_lookup
 
@@ -245,14 +242,27 @@ def evolve(human_infection_lookup,
 
     include_importations = run_parameters.get("include_importations", False)
 
+    # Check for nans in human_infection_lookup
+    if human_infection_lookup.isnull().values.any():
+        raise ValueError("NaNs found in human infection lookup.")
+
     vector_lookup = human_to_vector_transmission(human_infection_lookup, vector_lookup, biting_rates, **run_parameters)
     # vector_lookup["n_spo_genotypes"] = vector_lookup["sporozoite_genotypes"].apply(len)
     human_infection_lookup = vector_to_human_transmission(human_infection_lookup, vector_lookup, biting_rates, **run_parameters)
     if include_importations:
         human_infection_lookup, root_lookup = import_human_infections(human_infection_lookup, root_lookup, run_parameters)
 
+    # Check for nans in human_infection_lookup
+    if human_infection_lookup.isnull().values.any():
+        raise ValueError("NaNs found in human infection lookup.")
+
     # Timestep bookkeeping: clear infections which have completed their duration, update vector clocks
     human_infection_lookup, vector_lookup = timestep_bookkeeping(human_infection_lookup, vector_lookup)
+
+    # Check for nans in human_infection_lookup
+    if human_infection_lookup.isnull().values.any():
+        raise ValueError("NaNs found in human infection lookup.")
+
     return human_infection_lookup, vector_lookup, root_lookup
 
 
