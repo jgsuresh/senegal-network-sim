@@ -80,7 +80,13 @@ def heterogeneous_biting_risk(N_humans, run_parameters):
 
 def age_based_biting_risk(N_humans, run_parameters):
     demographics_on = run_parameters.get("demographics_on", False)
-    age_modifies_biting_risk = run_parameters.get("age_modifies_biting_risk", False)
+
+    # check if "age_modifies_biting_risk" is in run_parameters
+    if "age_modifies_biting_risk" not in run_parameters:
+        print("WARNING: age_modifies_biting_risk not in run_parameters. Setting to False")
+        age_modifies_biting_risk = False
+    else:
+        age_modifies_biting_risk = run_parameters["age_modifies_biting_risk"]
 
     if not demographics_on or not age_modifies_biting_risk:
         return np.ones(N_humans)

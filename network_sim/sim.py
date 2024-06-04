@@ -180,6 +180,7 @@ def vector_to_human_transmission(infection_lookup,
                               rename(columns={"sporozoite_genotypes": "genotype"}))
             N_new_infections = new_infections.shape[0]
 
+
             # Generate infectiousness and infection duration for each new infection
             new_infection_stats = initialize_new_human_infections(N_new_infections, kwargs, initialize_genotypes=False, humans_to_infect=list(new_infections["human_id"]))
             new_infections = pd.merge(new_infections, new_infection_stats, how="left", on="human_id")

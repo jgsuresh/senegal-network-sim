@@ -113,7 +113,7 @@ def gametocyte_to_oocyst_offspring_genotypes_numba(gametocyte_genotypes, num_ooc
 
     # If there is only one genotype, clonal reproduction occurs
     if gametocyte_genotypes.shape[0] == 1:
-        return gametocyte_genotypes
+        return gametocyte_genotypes.astype(np.int32)
     else:
         n_oocyst = num_oocysts(model=num_oocyst_model, min_oocysts=1)
 

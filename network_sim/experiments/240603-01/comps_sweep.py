@@ -29,8 +29,8 @@ base_sim_params = {
     "mean_bites_from_infected_mosquito": 1, # 1.34 # only used if bites_from_infected_mosquito_distribution is "constant",
     "N_barcode_positions": 24,
     "vector_picks_up_all_strains": False,
-    "demographics_on": False,
-    "age_modifies_biting": False,
+    "demographics_on": True,
+    "age_modifies_biting_risk": True,
     "age_modifies_infectiousness": False,
     "save_all_data": True,
     "timesteps_between_outputs": 10,
@@ -124,7 +124,8 @@ def create_experiment_with_sif(platform):
                         command=f"singularity exec Assets/{sif_filename} python3 Assets/{image_name}/sim.py",
                         num_cores=1,
                         NumNodes=1,
-                        node_group_name="idm_48cores",
+                        # node_group_name="idm_48cores",
+                        node_group_name="idm_abcd",
                         Environment={"PYTHONPATH": "$PYTHONPATH:$PWD/Assets"} )
     experiment = Experiment.from_template(ts, name=os.path.split(sys.argv[0])[1])
 
@@ -132,7 +133,8 @@ def create_experiment_with_sif(platform):
     sys.exit(0 if experiment.succeeded else -1)
 
 if __name__ == '__main__':
-    platform = Platform("Calculon", num_cores=1, node_group="idm_48cores", priority="Highest")
+    # platform = Platform("Calculon", num_cores=1, node_group="idm_48cores", priority="Highest")
+    platform = Platform("Calculon", num_cores=1, node_group="idm_abcd", priority="Highest")
     # platform = Platform("Calculon")
     # create experiment with sif already generated (id in singularity/network_sim.id)
     create_experiment_with_sif(platform)
