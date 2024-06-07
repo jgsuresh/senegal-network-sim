@@ -68,7 +68,6 @@ def biting_with_aging(N):
 
 def heterogeneous_biting_risk(N_humans, run_parameters):
     # Return relative biting risk compared to population average
-
     daily_bite_rate_distribution = run_parameters["daily_bite_rate_distribution"]
 
     if daily_bite_rate_distribution == "constant":
@@ -158,23 +157,27 @@ def simulate_bites(prob_transmit):
             return list(successes)
 
 # @profile
-def determine_which_genotypes_mosquito_picks_up(human_id, infection_lookup):
+def determine_which_genotypes_mosquito_picks_up(human_id, infection_lookup, vector_picks_up_all_genotypes=False):
     # Note: this function is only called if mosquito is guaranteed to be infected by at least one genotype
 
     # Get all infections for this human
     this_human = infection_lookup[infection_lookup["human_id"] == human_id]
-
-    # If human has only 1 infection, then mosquito picks up that infection
     if this_human.shape[0] == 0:
         raise ValueError("Human has no infections")
-    elif this_human.shape[0] == 1:
-        return [this_human["genotype"].iloc[0]]
+
+    if vector_picks_up_all_genotypes:
+        # If vector picks up all genotypes, then return all genotypes
+        return list(this_human["genotype"])
     else:
-        # If human has multiple genotypes, then simulate bites until at least 1 genotype is picked up
-        prob_transmit = np.array(this_human["infectiousness"])
-        successes = simulate_bites(prob_transmit)
-        # Return the successful genotypes
-        return list(this_human["genotype"][successes])
+        # If human has only 1 infection, then mosquito picks up that infection
+        if this_human.shape[0] == 1:
+            return [this_human["genotype"].iloc[0]]
+        else:
+            # If human has multiple genotypes, then simulate bites until at least 1 genotype is picked up
+            prob_transmit = np.array(this_human["infectiousness"])
+            successes = simulate_bites(prob_transmit)
+            # Return the successful genotypes
+            return list(this_human["genotype"][successes])
 
 
 # @profile
@@ -205,6 +208,21 @@ def determine_sporozoite_genotypes(vector_lookup):
         # Update the sporozoite genotypes in the original DataFrame
         vector_lookup.loc[recombination_needed, "sporozoite_genotypes"] = sporozoite_genotypes
     return vector_lookup
+
+
+def determine_sporozoite_genotypes_v2(gametocyte_genotypes):
+    # Determine sporozoite genotypes (i.e. the genotypes that each vector will transmit)
+
+    n_gametocyte_genotypes = len(gametocyte_genotypes)
+    if n_gametocyte_genotypes == 0:
+        raise ValueError
+
+    # No recombination needed if only one gametocyte genotype
+    if n_gametocyte_genotypes == 1:
+        return gametocyte_genotypes
+
+    # Recombination needed if multiple gametocyte genotypes
+    return gametocyte_to_sporozoite_genotypes_numba(np.vstack(gametocyte_genotypes))
 
 
 def determine_biting_rates(N_individuals, run_parameters):

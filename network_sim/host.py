@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from scipy.special import gamma
 
+from network_sim.immunity import get_infection_stats_from_age_and_eir, predict_emod_pfemp1_variant_fraction
 from network_sim.vector import age_based_surface_area
 
 
@@ -31,15 +32,18 @@ def draw_individual_ages(N_individuals):
     # Draw age from age bin
     ages = np.random.uniform(age_dist['age_min'][indices], age_dist['age_max'][indices])
 
-    return ages
+    return np.sort(ages)
 
 
 def initialize_new_human_infections(N,
                                     run_parameters,
-                                    humans_to_infect=None,
+                                    humans_to_infect,
                                     initialize_genotypes=False,
                                     allele_freq=None,
-                                    initial_sim_setup=False):
+                                    initial_sim_setup=False,
+                                    human_info=None,
+                                    daily_sim_eir=None
+                                    ):
     # Create new human infections. This is called under 3 conditions:
     # 1. When the simulation is starting from scratch
     # 2. When a new human is infected through a vector bite
@@ -52,20 +56,28 @@ def initialize_new_human_infections(N,
     immunity_on = run_parameters.get("immunity_on", False)
 
     if immunity_on:
-        raise NotImplementedError
+        if human_info is None:
+            raise ValueError("Must provide human_info to establish immunity")
+        if daily_sim_eir is None:
+            print("WARNING: daily_sim_eir not provided. Using default value of 0.05 for immunity calculations")
+            daily_sim_eir = 0.05
+
+        age = human_info["age"]
+        relative_biting_rate = human_info["relative_biting_rate"]
+
+        infection_duration, infectiousness = get_infection_stats_from_age_and_eir(age, relative_biting_rate, daily_sim_eir)
+
     else:
-        infectiousness = draw_infectiousness(N, run_parameters)
+        infectiousness = draw_infectiousness_from_simple_distribution(N, run_parameters)
+        infection_duration = draw_infection_durations_from_simple_distribution(N, run_parameters)
 
-        infection_duration = draw_infection_durations(N, run_parameters)
-        if initial_sim_setup:
-            # If sim is starting now, then we are seeing somewhere in the middle of the infection
-            days_until_clearance = np.random.randint(1, infection_duration+1)
-        else:
-            # Otherwise, we are starting from the beginning of the infection
-            days_until_clearance = infection_duration
-
-    if humans_to_infect is None:
-        humans_to_infect = np.random.choice(human_ids, N, replace=True)
+    # Determine days until infection is cleared
+    if initial_sim_setup:
+        # If sim is starting now, then we are seeing somewhere in the middle of the infection
+        days_until_clearance = np.random.randint(1, infection_duration+1)
+    else:
+        # Otherwise, we are starting from the beginning of the infection
+        days_until_clearance = infection_duration
 
     # Distribute initial infections randomly to humans, with random time until clearance
     human_infection_lookup = pd.DataFrame({"human_id": humans_to_infect,
@@ -101,7 +113,7 @@ if __name__ == "__main__":
     plt.show()
 
 
-def draw_infection_durations(N, run_parameters):
+def draw_infection_durations_from_simple_distribution(N, run_parameters):
     distribution = run_parameters.get("infection_duration_distribution", "constant")
     mean_duration = run_parameters.get("individual_infection_duration")
 
@@ -116,7 +128,7 @@ def draw_infection_durations(N, run_parameters):
         # Generate a sample from the Weibull distribution
         return (np.random.weibull(shape, N) * scale).astype(np.int64)
 
-def draw_infectiousness(N, run_parameters):
+def draw_infectiousness_from_simple_distribution(N, run_parameters):
     infectiousness_distribution = run_parameters.get("infectiousness_distribution", "constant")
     individual_infectiousness = run_parameters.get("individual_infectiousness")
 
@@ -129,3 +141,8 @@ def draw_infectiousness(N, run_parameters):
         raise ValueError("Invalid infectiousness distribution")
 
     return infectiousness
+
+def draw_infection_properties_from_emod_distribution(N, age_in_years, relative_biting_rate, daily_sim_eir):
+    pfemp1_variant_fraction = predict_emod_pfemp1_variant_fraction(age_in_years, relative_biting_rate, daily_sim_eir)
+
+    #

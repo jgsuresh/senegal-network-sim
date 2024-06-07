@@ -10,6 +10,7 @@ def import_human_infections(human_infection_lookup, root_lookup, run_parameters)
     importations_per_day = float(importations_per_day)
     importation_allele_freq = run_parameters.get("importation_allele_freq")
     track_roots = run_parameters.get("track_roots", False)
+    human_ids = run_parameters["human_ids"]
 
     if importations_per_day == 0.0:
         return human_infection_lookup, root_lookup
@@ -20,8 +21,11 @@ def import_human_infections(human_infection_lookup, root_lookup, run_parameters)
         return human_infection_lookup, root_lookup
 
     # People receiving infections are drawn randomly with replacement
+    humans_to_infect = np.random.choice(human_ids, n_imports, replace=True)
+
     imported_infections = initialize_new_human_infections(n_imports,
                                                           run_parameters,
+                                                          humans_to_infect=humans_to_infect,
                                                           initialize_genotypes=True,
                                                           allele_freq=importation_allele_freq)
 

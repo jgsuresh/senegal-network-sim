@@ -3,6 +3,7 @@
 import numpy as np
 import pandas as pd
 
+from network_sim.burnin import burnin_starting_infections
 from network_sim.host import draw_individual_ages, \
     initialize_new_human_infections
 from network_sim.importations import import_human_infections
@@ -139,10 +140,6 @@ def human_to_vector_transmission(infection_lookup,
         new_vector_lookup["vector_id"] += vector_lookup["vector_id"].max() + 1
         return pd.concat([vector_lookup, new_vector_lookup], ignore_index=True)
 
-# def initialize_new_human_infections(n_new_infections, run_parameters):
-#     # Determine infection durations and infectiousness
-
-
 # @profile
 def vector_to_human_transmission(infection_lookup,
                                  vector_lookup,
@@ -225,25 +222,18 @@ def timestep_bookkeeping(human_infection_lookup, vector_lookup):
 
     return human_infection_lookup, vector_lookup
 
-
-def get_max_infection_id(infection_lookup):
-    if infection_lookup.shape[0] == 0:
-        return 0
-    else:
-        return infection_lookup["infection_id"].max()
-
-
-# @jit(forceobj=True)
 # @profile
 def evolve(human_infection_lookup,
            vector_lookup,
            root_lookup,
            run_parameters,
            biting_rates,
+           daily_eir=None,
            ):
     # All the things that happen in a timestep
 
     include_importations = run_parameters.get("include_importations", False)
+    immunity_on = run_parameters.get("immunity_on", False)
 
     vector_lookup = human_to_vector_transmission(human_infection_lookup, vector_lookup, biting_rates, **run_parameters)
     # vector_lookup["n_spo_genotypes"] = vector_lookup["sporozoite_genotypes"].apply(len)
@@ -255,13 +245,44 @@ def evolve(human_infection_lookup,
     human_infection_lookup, vector_lookup = timestep_bookkeeping(human_infection_lookup, vector_lookup)
     return human_infection_lookup, vector_lookup, root_lookup
 
+def burnin_setup(run_parameters):
+    N_initial_infections = run_parameters["N_initial_infections"]
+
+    # Generate initial infections #fixme Might want to distribute these in age-appropriate way if demographics are on
+    human_infection_lookup = initialize_new_human_infections(N=N_initial_infections,
+                                                             allele_freq=0.5,
+                                                             run_parameters=run_parameters,
+                                                             initial_sim_setup=True,
+                                                             initialize_genotypes=True)
+    # Add infection IDs
+    human_infection_lookup["infection_id"] = np.arange(N_initial_infections)
+
+    if track_roots:
+        root_lookup = human_infection_lookup[["human_id", "genotype"]].copy()
+        root_lookup["root_id"] = np.arange(N_initial_infections)
+
+        # Replace "genotype" in human_infection_lookup with root id
+        N_barcode_positions = run_parameters["N_barcode_positions"]
+        all_roots_matrix = np.arange(N_initial_infections).repeat(N_barcode_positions).reshape(N_initial_infections,
+                                                                                               N_barcode_positions)
+        human_infection_lookup["genotype"] = [row[0] for row in np.vsplit(all_roots_matrix, N_initial_infections)]
+    else:
+        root_lookup = pd.DataFrame({"human_id": [], "genotype": [], "root_id": []})
+
+    # Generate vector lookup
+    vector_lookup = pd.DataFrame({"vector_id": [],
+                                  "gametocyte_genotypes": [],
+                                  "sporozoite_genotypes": [],
+                                  "days_until_next_bite": []})
+
+    return human_infection_lookup, vector_lookup, root_lookup
 
 def initial_setup(run_parameters):
     N_initial_infections = run_parameters["N_initial_infections"]
     track_roots = run_parameters.get("track_roots", False)
-    relative_biting_risk = run_parameters.get("relative_biting_risk")
+    # relative_biting_risk = run_parameters.get("relative_biting_risk")
 
-    # Generate initial infections
+    # Generate initial infections #fixme Might want to distribute these in age-appropriate way if demographics are on
     human_infection_lookup = initialize_new_human_infections(N=N_initial_infections,
                                                              allele_freq=0.5,
                                                              run_parameters=run_parameters,
@@ -300,25 +321,23 @@ def run_sim(run_parameters, verbose=True):
     sim_duration = run_parameters["sim_duration"]
     N_individuals = run_parameters["N_individuals"]
     demographics_on = run_parameters.get("demographics_on", False)
-    immunity_on = run_parameters.get("immunity_on", False)
+    transmission_burnin_period = run_parameters.get("transmission_burnin_period", 0)
+    immunity_mode = run_parameters.get("immunity_mode", "off")
     save_all_data = run_parameters.get("save_all_data", True)
     timesteps_between_outputs = run_parameters.get("timesteps_between_outputs", 1)
     track_roots = run_parameters.get("track_roots", False)
 
-    human_ids = np.arange(N_individuals)
-    run_parameters["human_ids"] = human_ids
-    if demographics_on:
-        if verbose:
-            print("Demographics are on! Drawing individual ages.")
-        run_parameters["human_ages"] = draw_individual_ages(N_individuals)
+    # Generate human lookup
+    human_lookup = pd.DataFrame({"human_id": np.arange(N_individuals)})
+    human_lookup["human_ages"] = draw_individual_ages(N_individuals)
+    if verbose:
+        print("Note: currently assumes that relative biting rates are constant for each person across the simulation.")
+    biting_rate, relative_biting_risk = determine_biting_rates(N_individuals, run_parameters)
+    human_lookup["biting_rate"] = biting_rate
 
-    #Note: currently assumes that relative biting rates are constant for each person across the simulation.
-    biting_rates, relative_biting_risk = determine_biting_rates(N_individuals, run_parameters)
-    run_parameters["biting_rates"] = biting_rates
-    run_parameters["relative_biting_risk"] = relative_biting_risk
-
-    # Set up initial conditions
-    human_infection_lookup, vector_lookup, root_lookup = initial_setup(run_parameters)
+    human_infection_lookup = burnin_starting_infections(human_lookup)
+    vector_lookup = pd.DataFrame({"vector_id": [],
+                                  "days_until_next_bite": []})
 
     # Set up summary statistics
     summary_statistics = pd.DataFrame({"time": [],
@@ -326,13 +345,22 @@ def run_sim(run_parameters, verbose=True):
                                        "n_humans_infected": [],
                                        "n_infected_vectors": [],
                                        "n_unique_genotypes": [],
-                                       # "polygenomic_fraction": [],
-                                       # "coi": [],
                                        "n_roots": [],
                                        "eir": []
                                        })
 
-    # Set up full dataframe for post hoc analysis
+    # Run the burn-in period
+    for t in range(transmission_burnin_period):
+        human_infection_lookup, vector_lookup, root_lookup = evolve(human_infection_lookup,
+                                                                    vector_lookup,
+                                                                    root_lookup,
+                                                                    biting_rates=biting_rates,
+                                                                    run_parameters=run_parameters)
+
+
+
+
+    # Set up full dataframe for post-processing analysis
     full_df = human_infection_lookup[["human_id", "genotype"]]
     full_df["t"] = 0
     timesteps_to_save = np.arange(0, sim_duration, timesteps_between_outputs)
