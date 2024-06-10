@@ -179,6 +179,28 @@ def determine_which_genotypes_mosquito_picks_up(human_id, infection_lookup, vect
             # Return the successful genotypes
             return list(this_human["genotype"][successes])
 
+def determine_which_infection_ids_mosquito_picks_up(human_id, infection_lookup, vector_picks_up_all_infections=False):
+    # Assume mosquito is going to be infected by this person. Which infection IDs do they pick up?
+
+    # Get all infections for this human
+    this_human = infection_lookup[infection_lookup["human_id"] == human_id]
+    if this_human.shape[0] == 0:
+        raise ValueError("Human has no infections")
+
+    if vector_picks_up_all_infections:
+        # If vector picks up all genotypes, then return all genotypes
+        return list(this_human["infection_id"])
+    else:
+        # If human has only 1 infection, then mosquito picks up that infection
+        if this_human.shape[0] == 1:
+            return [this_human["infection_id"].iloc[0]]
+        else:
+            # If human has multiple genotypes, then simulate bites until at least 1 genotype is picked up
+            prob_transmit = np.array(this_human["infectiousness"])
+            successes = simulate_bites(prob_transmit)
+            # Return the successful genotypes
+            return list(this_human["infection_id"][successes])
+
 
 # @profile
 def determine_sporozoite_genotypes(vector_lookup):
@@ -210,10 +232,11 @@ def determine_sporozoite_genotypes(vector_lookup):
     return vector_lookup
 
 
-def determine_sporozoite_genotypes_v2(gametocyte_genotypes):
+def determine_sporozoite_barcodes(gametocyte_genotypes):
     # Determine sporozoite genotypes (i.e. the genotypes that each vector will transmit)
+    # Assumes gametocyte_genotypes are in the form of an [N_barcodes x N_barcode_sites] numpy array
 
-    n_gametocyte_genotypes = len(gametocyte_genotypes)
+    n_gametocyte_genotypes = gametocyte_genotypes.shape[0]
     if n_gametocyte_genotypes == 0:
         raise ValueError
 
@@ -222,7 +245,7 @@ def determine_sporozoite_genotypes_v2(gametocyte_genotypes):
         return gametocyte_genotypes
 
     # Recombination needed if multiple gametocyte genotypes
-    return gametocyte_to_sporozoite_genotypes_numba(np.vstack(gametocyte_genotypes))
+    return gametocyte_to_sporozoite_genotypes_numba(gametocyte_genotypes)
 
 
 def determine_biting_rates(N_individuals, run_parameters):

@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 
+from network_sim import manifest
 from network_sim.vector import age_based_surface_area
 
 
@@ -29,7 +30,8 @@ def predict_emod_pfemp1_variant_fraction(age_in_years, relative_biting_rate, dai
                              c)))
 
 # Opening this once and for all. Not sure if this is best since this will happen even without immunity on #fixme
-df_emod = pd.read_csv("emod_infection_summary.csv")
+# df_emod = pd.read_csv("emod_infection_summary.csv")
+df_emod = pd.read_csv(manifest.emod_infection_summary_filepath)
 def predict_infection_stats_from_pfemp1_variant_fraction(pfemp1_variant_frac):
     # Draw infection stats from EMOD lookup data
 

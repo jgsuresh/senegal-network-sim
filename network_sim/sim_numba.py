@@ -9,7 +9,7 @@ import cProfile
 from numba import jit, njit
 
 from network_sim.meiosis_models.super_simple import gametocyte_to_sporozoite_genotypes
-from network_sim.metrics import complexity_of_infection, get_n_unique_strains, polygenomic_fraction
+from network_sim.metrics import complexity_of_infection, count_unique_barcodes, polygenomic_fraction
 
 def determine_which_genotypes_mosquito_picks_up(human_id, infection_lookup):
     # Note: this function is only called if mosquito is guaranteed to be infected by at least one genotype

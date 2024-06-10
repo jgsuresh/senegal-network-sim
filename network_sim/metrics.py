@@ -46,14 +46,17 @@ def get_genotype_from_root_barcode(infection_root_barcodes, root_genotypes):
 
     return infection_genotypes
 
-def get_n_unique_strains(human_infection_lookup):
+def count_unique_barcodes(infection_barcodes):
     # Get total number of unique genotypes across all infections
-    if human_infection_lookup.shape[0] == 0:
+    if len(infection_barcodes) == 0:
         return 0
-    all_genotypes = np.vstack(human_infection_lookup["genotype"].values)
-    unique_genotypes = np.unique(all_genotypes, axis=0)
-    n_unique_genotypes = unique_genotypes.shape[0]
-    return n_unique_genotypes
+
+    # Get all genotypes (each is an array) from infection_barcodes, then count how many are unique
+    all_barcodes = np.vstack(list(infection_barcodes["genotype"].values()))
+    unique_barcodes = np.unique(all_barcodes, axis=0)
+    n_unique_barcodes = unique_barcodes.shape[0]
+    return n_unique_barcodes
+
 
 def complexity_of_infection(genotype_df):
     # Get average number of genotypes per infected individual
