@@ -52,7 +52,7 @@ def count_unique_barcodes(infection_barcodes):
         return 0
 
     # Get all genotypes (each is an array) from infection_barcodes, then count how many are unique
-    all_barcodes = np.vstack(list(infection_barcodes["genotype"].values()))
+    all_barcodes = np.vstack(list(infection_barcodes.values()))
     unique_barcodes = np.unique(all_barcodes, axis=0)
     n_unique_barcodes = unique_barcodes.shape[0]
     return n_unique_barcodes

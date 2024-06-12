@@ -1,31 +1,15 @@
 import random
 
 import numpy as np
+from line_profiler_pycharm import profile
 from numba import njit
+from scipy.stats import nbinom
 
 from network_sim.numba_extras import find_unique_rows
 
-# DEPRECATED
-# @njit
-# def meiosis(parent1_genotype, parent2_genotype):
-#     # Incredibly simple model of meiosis
-#     # For each SNP, there is a bucket of 4 options ["parent1", "parent1", "parent2", "parent2"].
-#     # The 4 offspring choose randomly, without replacement, from this bucket.
-#
-#     # Stack the parent genotypes to create a matrix of shape (4, n_snps)
-#     offspring_genotypes_matrix = np.vstack((parent1_genotype, parent1_genotype, parent2_genotype, parent2_genotype))
-#
-#     # Shuffle the columns of the matrix, so each offspring gets a random mix of parent genotypes
-#     for col in range(offspring_genotypes_matrix.shape[1]):
-#         np.random.shuffle(offspring_genotypes_matrix[:, col])
-#
-#     # Split the matrix back into 4 separate genotypes
-#     offspring_genotypes = [row[0] for row in np.vsplit(offspring_genotypes_matrix, 4)]
-#     return offspring_genotypes
-
 # @profile
 @njit
-def meiosis_numba(parent1_genotype, parent2_genotype):
+def meiosis(parent1_genotype, parent2_genotype):
     # Incredibly simple model of meiosis
     # For each SNP, there is a bucket of 4 options ["parent1", "parent1", "parent2", "parent2"].
     # The 4 offspring choose randomly, without replacement, from this bucket.
@@ -44,25 +28,6 @@ def meiosis_numba(parent1_genotype, parent2_genotype):
     # Return the matrix
     return offspring_genotypes_matrix
 
-
-# DEPRECATED
-# @njit(parallel=True)
-# def meiosis_numba_parallel(parent1_genotype, parent2_genotype):
-#     n_snps = parent1_genotype.shape[0]
-#     offspring_genotypes_matrix = np.empty((4, n_snps), dtype=parent1_genotype.dtype)
-#
-#     for i in prange(n_snps):
-#         # Fill the matrix with parent genotypes
-#         offspring_genotypes_matrix[0, i] = parent1_genotype[i]
-#         offspring_genotypes_matrix[1, i] = parent1_genotype[i]
-#         offspring_genotypes_matrix[2, i] = parent2_genotype[i]
-#         offspring_genotypes_matrix[3, i] = parent2_genotype[i]
-#
-#         # Shuffle the column
-#         np.random.shuffle(offspring_genotypes_matrix[:, i])
-#
-#     return offspring_genotypes_matrix
-
 @njit
 def num_oocysts(model="fpg", min_oocysts=0):
     if model=="fpg":
@@ -79,33 +44,23 @@ def num_oocysts(model="fpg", min_oocysts=0):
         raise ValueError("Model not recognized.")
 
 
-# DEPRECATED
-# def gametocyte_to_oocyst_offspring_genotypes(gametocyte_genotypes, gametocyte_densities=None, num_oocyst_model="fpg"):
-#     # Assumes gametocytype genotypes is a list of arrays. Each element of the list is a different genotype.
-#     # Assumes all oocyst offspring have equal likelihood to be onwardly transmitted.
-#     # Note that in the case of selfing, all four offspring genotypes are passed on, to account for higher likelihood of onward transmission.
-#     #todo Add root tracking
-#
-#     # if gametocyte_densities is not None:
-#     #     raise ValueError("Only equal likelihood gametocyte->oocyst is supported at the moment.")
-#
-#     # If there is only one genotype, clonal reproduction occurs
-#     if len(gametocyte_genotypes) == 1:
-#         return gametocyte_genotypes
-#     else:
-#         offspring_genotypes = []
-#
-#         n_oocyst = num_oocysts(model=num_oocyst_model, min_oocysts=1)
-#
-#         for i in range(n_oocyst):
-#             parent_indices = np.random.randint(0, len(gametocyte_genotypes), 2)
-#             parent1_genotype, parent2_genotype = gametocyte_genotypes[parent_indices[0]], gametocyte_genotypes[parent_indices[1]]
-#             offspring_genotypes.extend(meiosis(parent1_genotype, parent2_genotype))
-#
-#         return offspring_genotypes
+def precompute_nbinom_cdf(r, p, max_value=100):
+    pmf = nbinom.pmf(np.arange(max_value + 1), r, p)
+    cdf = np.cumsum(pmf)
+    return cdf
+
+oocyst_cdf = precompute_nbinom_cdf(3, 0.5, 100)
+n_oocyst_choices = np.arange(101).astype(int)
+@njit
+def num_oocysts_fast(): #hardcoded for speed
+    random_sample = np.random.rand()
+    for i, value in enumerate(oocyst_cdf):
+        if random_sample < value:
+            return max(1, n_oocyst_choices[i])
+    return n_oocyst_choices[-1]
 
 @njit
-def gametocyte_to_oocyst_offspring_genotypes_numba(gametocyte_genotypes, num_oocyst_model="fpg"):
+def gametocyte_to_oocyst_offspring_genotypes(gametocyte_genotypes, num_oocyst_model="fpg"):
     # Assumes gametocytype genotypes is a numpy matrix. Each row is a different genotype.
     # Assumes all oocyst offspring have equal likelihood to be onwardly transmitted.
     # Note that in the case of selfing, all four offspring genotypes are passed on, to account for higher likelihood of onward transmission.
@@ -115,7 +70,8 @@ def gametocyte_to_oocyst_offspring_genotypes_numba(gametocyte_genotypes, num_ooc
     if gametocyte_genotypes.shape[0] == 1:
         return gametocyte_genotypes
     else:
-        n_oocyst = num_oocysts(model=num_oocyst_model, min_oocysts=1)
+        # n_oocyst = num_oocysts(model=num_oocyst_model, min_oocysts=1)
+        n_oocyst = num_oocysts_fast()
 
         offspring_genotypes = np.empty((n_oocyst*4, gametocyte_genotypes.shape[1]), dtype=np.int64)
 
@@ -129,7 +85,12 @@ def gametocyte_to_oocyst_offspring_genotypes_numba(gametocyte_genotypes, num_ooc
                 offspring_genotypes[i * 4:(i + 1) * 4] = np.vstack((parent1_genotype,parent1_genotype,parent1_genotype,parent1_genotype))
             else:
                 parent2_genotype = gametocyte_genotypes[parent2_index]
-                offspring_genotypes[i*4:(i+1)*4] = meiosis_numba(parent1_genotype, parent2_genotype)
+
+                # check if parent1_genotype and parent2_genotype are same
+                if np.array_equal(parent1_genotype, parent2_genotype):
+                    offspring_genotypes[i * 4:(i + 1) * 4] = np.vstack((parent1_genotype,parent1_genotype,parent1_genotype,parent1_genotype))
+                else:
+                    offspring_genotypes[i*4:(i+1)*4] = meiosis(parent1_genotype, parent2_genotype)
 
         return offspring_genotypes
 
@@ -140,15 +101,27 @@ def num_sporozites(min_sporozoites=0):
     p = 0.5  # probability of failure. EMOD param Probability_Sporozoite_In_Bite_Fails
     return max(min_sporozoites,np.random.negative_binomial(r, p))
 
+sporozoite_cdf = precompute_nbinom_cdf(12, 0.5, 100)
+n_sporozoite_choices = np.arange(101).astype(int)
+@njit
+def num_sporozites_fast(): #hardcoded for speed
+    random_sample = np.random.rand()
+    for i, value in enumerate(sporozoite_cdf):
+        if random_sample < value:
+            return max(1, n_sporozoite_choices[i])
+    return 1
 
 # DEPRECATED
 # def oocyst_offspring_to_sporozoite_genotypes(oocyst_offspring_genotypes):
 #     n_spz = num_sporozites(model="fpg", min_sporozoites=1)
 #     return random.choices(oocyst_offspring_genotypes, k=n_spz)
 
+# @njit
+# @profile
 @njit
 def oocyst_offspring_to_sporozoite_genotypes_numba(oocyst_offspring_genotypes):
-    n_spz = num_sporozites(min_sporozoites=1)
+    # n_spz = num_sporozites(min_sporozoites=1)
+    n_spz = num_sporozites_fast()
     indices = np.random.choice(oocyst_offspring_genotypes.shape[0], size=n_spz)
     return oocyst_offspring_genotypes[indices]
 
@@ -170,9 +143,10 @@ def oocyst_offspring_to_sporozoite_genotypes_numba(oocyst_offspring_genotypes):
 #         sporozoite_genotypes_without_duplicates = [row[0] for row in np.vsplit(sporozoite_genotypes_without_duplicates, sporozoite_genotypes_without_duplicates.shape[0])]
 #         return sporozoite_genotypes_without_duplicates
 
+# @njit
 @njit
 def gametocyte_to_sporozoite_genotypes_numba(gametocyte_genotypes):
-    oocyst_offspring_genotypes = gametocyte_to_oocyst_offspring_genotypes_numba(gametocyte_genotypes)
+    oocyst_offspring_genotypes = gametocyte_to_oocyst_offspring_genotypes(gametocyte_genotypes)
     sporozoite_genotypes = oocyst_offspring_to_sporozoite_genotypes_numba(oocyst_offspring_genotypes)
 
     # Remove duplicates - #fixme Account for different likelihoods of onward transmission

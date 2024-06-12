@@ -146,7 +146,7 @@ def draw_infection_properties_from_emod_distribution(N, age_in_years, relative_b
     pfemp1_variant_fraction = predict_emod_pfemp1_variant_fraction(age_in_years, relative_biting_rate, daily_sim_eir)
 
 def get_simple_infection_stats(N_infections, run_parameters):
-    duration = draw_infection_durations_from_simple_distribution(run_parameters)
-    infectiousness = draw_infectiousness_from_simple_distribution(run_parameters)
+    duration = draw_infection_durations_from_simple_distribution(N_infections, run_parameters)
+    infectiousness = draw_infectiousness_from_simple_distribution(N_infections, run_parameters)
     return duration, infectiousness
 

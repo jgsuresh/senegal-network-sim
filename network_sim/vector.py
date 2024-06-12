@@ -1,8 +1,10 @@
 import numpy as np
+from line_profiler_pycharm import profile
 # from line_profiler_pycharm import profile
 from numba import njit, vectorize
 
 from network_sim.meiosis_models.super_simple import gametocyte_to_sporozoite_genotypes_numba
+from network_sim.numba_extras import find_unique_rows
 
 
 def draw_infectious_bite_number(N_vectors, run_parameters):
@@ -151,9 +153,11 @@ def simulate_bites(prob_transmit):
     at_least_one_transmits = 1 - np.prod(1 - prob_transmit)
     prob_transmit = prob_transmit / at_least_one_transmits
 
+    n_strains = len(prob_transmit)
+
     while True:
-        successes = np.random.rand(len(prob_transmit)) < prob_transmit
-        if np.sum(successes) >= 1:
+        successes = np.random.rand(n_strains) < prob_transmit
+        if np.any(successes):
             return list(successes)
 
 # @profile
@@ -179,7 +183,8 @@ def determine_which_genotypes_mosquito_picks_up(human_id, infection_lookup, vect
             # Return the successful genotypes
             return list(this_human["genotype"][successes])
 
-def determine_which_infection_ids_mosquito_picks_up(human_id, infection_lookup, vector_picks_up_all_infections=False):
+@profile
+def determine_which_infection_ids_mosquito_picks_up(human_id, infection_lookup, vector_picks_up_all_strains=False):
     # Assume mosquito is going to be infected by this person. Which infection IDs do they pick up?
 
     # Get all infections for this human
@@ -187,7 +192,7 @@ def determine_which_infection_ids_mosquito_picks_up(human_id, infection_lookup, 
     if this_human.shape[0] == 0:
         raise ValueError("Human has no infections")
 
-    if vector_picks_up_all_infections:
+    if vector_picks_up_all_strains:
         # If vector picks up all genotypes, then return all genotypes
         return list(this_human["infection_id"])
     else:
@@ -231,7 +236,8 @@ def determine_sporozoite_genotypes(vector_lookup):
         vector_lookup.loc[recombination_needed, "sporozoite_genotypes"] = sporozoite_genotypes
     return vector_lookup
 
-
+# @njit
+@njit
 def determine_sporozoite_barcodes(gametocyte_genotypes):
     # Determine sporozoite genotypes (i.e. the genotypes that each vector will transmit)
     # Assumes gametocyte_genotypes are in the form of an [N_barcodes x N_barcode_sites] numpy array
@@ -244,7 +250,12 @@ def determine_sporozoite_barcodes(gametocyte_genotypes):
     if n_gametocyte_genotypes == 1:
         return gametocyte_genotypes
 
-    # Recombination needed if multiple gametocyte genotypes
+    # Check if we have >1 unique barcode
+    gametocyte_genotypes_without_duplicates = find_unique_rows(gametocyte_genotypes)
+    if gametocyte_genotypes_without_duplicates.shape[0] == 1:
+        return gametocyte_genotypes_without_duplicates
+
+    # Recombination needed if multiple unique gametocyte genotypes
     return gametocyte_to_sporozoite_genotypes_numba(gametocyte_genotypes)
 
 

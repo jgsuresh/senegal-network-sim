@@ -4,7 +4,7 @@ import time
 import numpy as np
 from numba import jit, njit, prange
 
-from network_sim.meiosis_models.super_simple import meiosis_numba, meiosis_numba_parallel, num_oocysts
+from network_sim.meiosis_models.super_simple import meiosis, meiosis_numba_parallel, num_oocysts
 
 
 @njit(parallel=True)

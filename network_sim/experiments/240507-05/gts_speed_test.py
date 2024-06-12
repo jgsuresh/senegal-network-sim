@@ -3,13 +3,13 @@ import time
 import numpy as np
 from numba import njit
 
-from network_sim.meiosis_models.super_simple import gametocyte_to_oocyst_offspring_genotypes_numba, \
+from network_sim.meiosis_models.super_simple import gametocyte_to_oocyst_offspring_genotypes, \
     oocyst_offspring_to_sporozoite_genotypes_numba
 from network_sim.numba_extras import find_unique_rows
 
 
 def gts_v1(gametocyte_genotypes):
-    oocyst_offspring_genotypes = gametocyte_to_oocyst_offspring_genotypes_numba(gametocyte_genotypes)
+    oocyst_offspring_genotypes = gametocyte_to_oocyst_offspring_genotypes(gametocyte_genotypes)
     sporozoite_genotypes = oocyst_offspring_to_sporozoite_genotypes_numba(oocyst_offspring_genotypes)
 
     # Remove duplicates - #fixme Account for different likelihoods of onward transmission
@@ -22,7 +22,7 @@ def gts_v1(gametocyte_genotypes):
 
 @njit
 def gts_v2(gametocyte_genotypes):
-    oocyst_offspring_genotypes = gametocyte_to_oocyst_offspring_genotypes_numba(gametocyte_genotypes)
+    oocyst_offspring_genotypes = gametocyte_to_oocyst_offspring_genotypes(gametocyte_genotypes)
     sporozoite_genotypes = oocyst_offspring_to_sporozoite_genotypes_numba(oocyst_offspring_genotypes)
 
     # Remove duplicates - #fixme Account for different likelihoods of onward transmission

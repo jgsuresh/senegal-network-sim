@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from line_profiler_pycharm import profile
 
 from network_sim.host import get_simple_infection_stats, initialize_new_human_infections
 from network_sim.immunity import get_infection_stats_from_age_and_eir, \
@@ -8,24 +9,19 @@ from network_sim.importations import import_human_infections
 from network_sim.vector import determine_sporozoite_barcodes, determine_which_infection_ids_mosquito_picks_up, \
     draw_infectious_bite_number
 
-
-def human_to_vector_transmission(human_lookup,
-                                 infection_lookup,
-                                 vector_lookup,
-                                 run_parameters,
-                                 vector_barcodes=None,
-                                 infection_barcodes=None,
+@profile
+def human_to_vector_transmission(sim_state,
                                  genetics_on=False,
-                                 bites_from_infected_mosquito_distribution="constant",
                                  ):
     # This function simulates the transmission of parasites from humans to vectors
+    run_parameters = sim_state["run_parameters"]
+    human_lookup = sim_state["human_lookup"]
+    infection_lookup = sim_state["infection_lookup"]
+    vector_lookup = sim_state["vector_lookup"]
+    infection_barcodes = sim_state["infection_barcodes"]
+    vector_barcodes = sim_state["vector_barcodes"]
 
-    if genetics_on and (infection_barcodes is None or vector_barcodes is None):
-        raise ValueError("Must provide infection_barcodes and vector_barcodes if genetics is on")
-
-    prob_survive_to_infectiousness = run_parameters.get("prob_survive_to_infectiousness", 1)
     N_humans = human_lookup.shape[0]
-
     df_today = pd.DataFrame({"human_id": np.arange(N_humans),
                              "n_vectors_bit": np.random.poisson(lam=human_lookup["biting_rate"])})
 
@@ -37,6 +33,7 @@ def human_to_vector_transmission(human_lookup,
         return vector_lookup, vector_barcodes
 
     # Calculate how many of the biting mosquitos will survive to infect
+    prob_survive_to_infectiousness = run_parameters.get("prob_survive_to_infectiousness", 1)
     if prob_survive_to_infectiousness == 1:
         df_today["n_vectors_bit_and_will_survive_to_infect"] = df_today["n_vectors_bit"]
     else:
@@ -63,7 +60,11 @@ def human_to_vector_transmission(human_lookup,
     # Repeat human ids for each vector to resolve
     hids_to_resolve = np.repeat(df_today["human_id"], df_today["n_vectors_to_resolve"])
     n_newly_infected_vectors = len(hids_to_resolve)
-    vector_ids = np.arange(vector_lookup["vector_id"].max()+1, n_newly_infected_vectors + vector_lookup["vector_id"].max()+1)
+    if len(vector_lookup) == 0:
+        max_vector_id = 0
+    else:
+        max_vector_id = vector_lookup["vector_id"].max()
+    vector_ids = np.arange(max_vector_id+1, n_newly_infected_vectors + max_vector_id+1)
 
     new_vector_lookup = pd.DataFrame({
         "vector_id": vector_ids,
@@ -73,10 +74,12 @@ def human_to_vector_transmission(human_lookup,
 
     if genetics_on:
         for human_id, vector_id in zip(hids_to_resolve, vector_ids):
-            infection_ids = determine_which_infection_ids_mosquito_picks_up(human_id=human_id, infection_lookup=infection_lookup)
+            infection_ids = determine_which_infection_ids_mosquito_picks_up(human_id=human_id,
+                                                                            infection_lookup=infection_lookup,
+                                                                            vector_picks_up_all_strains=run_parameters.get("vector_picks_up_all_strains", False))
 
             # Loop over all infection ids that mosquito is going to pick up and combine their barcodes into a gametocyte_barcodes array
-            gametocyte_barcodes = np.empty([len(infection_ids), 24])
+            gametocyte_barcodes = np.empty([len(infection_ids), 24], dtype=np.int64)
             for i, iid in enumerate(infection_ids):
                 gametocyte_barcodes[i, :] = infection_barcodes[iid]
 
@@ -92,20 +95,20 @@ def human_to_vector_transmission(human_lookup,
 
     return vector_lookup, vector_barcodes
 
-
-def vector_to_human_transmission(human_lookup,
-                                 infection_lookup,
-                                 vector_lookup,
-                                 run_parameters,
-                                 previous_max_infection_id=0,
-                                 infection_barcodes=None,
-                                 vector_barcodes=None,
+@profile
+def vector_to_human_transmission(sim_state,
                                  genetics_on=True):
     # This function simulates the transmission of parasites from vectors to humans
     # Returns updated infection lookup as well as number of infectious bites that occurred today
 
-    if genetics_on and (infection_barcodes is None or vector_barcodes is None):
-        raise ValueError("Must provide infection_barcodes and vector_barcodes if genetics is on")
+    run_parameters = sim_state["run_parameters"]
+    human_lookup = sim_state["human_lookup"]
+    infection_lookup = sim_state["infection_lookup"]
+    vector_lookup = sim_state["vector_lookup"]
+    infection_barcodes = sim_state["infection_barcodes"]
+    vector_barcodes = sim_state["vector_barcodes"]
+    previous_max_infection_id = sim_state["previous_max_infection_id"]
+
 
     immunity_on = run_parameters.get("immunity_on", False)
 
@@ -130,25 +133,24 @@ def vector_to_human_transmission(human_lookup,
     vectors_biting_today["human_id"] = np.random.choice(human_lookup["human_id"], size=n_new_infectious_bites, p=weights, replace=True)
 
     # For simplicity, sort vectors_biting_today by human_id
-    vectors_biting_today.sort_values("human_id", inplace=True)
+    vectors_biting_today = vectors_biting_today.sort_values("human_id").reset_index(drop=True)
 
     # Get the expected infectiousness and duration of these new infections based on the humans they are arising in
     if immunity_on:
-        immunity_levels = human_lookup["immunity_level"][human_lookup["human_id"].isin(vectors_biting_today["human_id"])]
+        # Get immunity levels for corresponding human_id in vectors_biting_today. Note that same human_id can appear multiple times
+        immunity_levels = vectors_biting_today["human_id"].map(human_lookup.set_index("human_id")["immunity_level"])
         infection_duration, infectiousness = predict_infection_stats_from_pfemp1_variant_fraction(immunity_levels)
     else:
         infection_duration, infectiousness = get_simple_infection_stats(n_new_infectious_bites, run_parameters)
 
     new_infections = pd.DataFrame({"human_id": vectors_biting_today["human_id"],
+                                   "vector_id": vectors_biting_today["vector_id"],
                                    "infectiousness": infectiousness,
                                    "days_until_clearance": infection_duration})
 
     if genetics_on:
         # If genetics is on, then each infection is actually repeated a number of times depending on number of sporozoite barcodes that are being transmitted
         # Repeat the rows of new_infections based on the number of sporozoite barcodes
-
-        # First get the vector_id information which we will use later when assigning barcodes
-        new_infections = new_infections.merge(vectors_biting_today[["human_id", "vector_id"]], on="human_id")
 
         # Loop over all vectors biting today and determine the sporozoite barcodes that they are carrying
         n_sporozoites_per_vector = []
@@ -180,8 +182,8 @@ def vector_to_human_transmission(human_lookup,
                 infection_id = group["infection_id"].iloc[j]
                 infection_barcodes[infection_id] = s
 
-        # Remove extraneous columns that we don't need anymore
-        new_infections = new_infections.drop(columns=["vector_id"])
+    # Remove extraneous columns that we don't need anymore
+    new_infections = new_infections.drop(columns=["vector_id"])
 
     # Append new infections to infection lookup
     infection_lookup = pd.concat([infection_lookup, new_infections], ignore_index=True)
@@ -229,36 +231,28 @@ def timestep_bookkeeping(infection_lookup, vector_lookup, infection_barcodes=Non
 
     return infection_lookup, vector_lookup, infection_barcodes, vector_barcodes
 
-def evolve(human_lookup,
-           infection_lookup,
-           vector_lookup,
-           run_parameters,
-           infection_barcodes=None,
-           vector_barcodes=None,
-           root_genotypes=None,
+@profile
+def evolve(sim_state,
            genetics_on=True,
-           previous_max_infection_id=0
            ):
     # All the things that happen in each timestep
+
+    run_parameters = sim_state["run_parameters"]
+    human_lookup = sim_state["human_lookup"]
+    infection_lookup = sim_state["infection_lookup"]
+    vector_lookup = sim_state["vector_lookup"]
+    infection_barcodes = sim_state["infection_barcodes"]
+    vector_barcodes = sim_state["vector_barcodes"]
+    root_genotypes = sim_state["root_genotypes"]
+    previous_max_infection_id = sim_state["previous_max_infection_id"]
 
     include_importations = run_parameters.get("include_importations", False)
     immunity_on = run_parameters.get("immunity_on", False)
 
-    vector_lookup, vector_barcodes = human_to_vector_transmission(human_lookup=human_lookup,
-                                                                  infection_lookup=infection_lookup,
-                                                                  vector_lookup=vector_lookup,
-                                                                  run_parameters=run_parameters,
-                                                                  vector_barcodes=vector_barcodes,
-                                                                  infection_barcodes=infection_barcodes,
+    vector_lookup, vector_barcodes = human_to_vector_transmission(sim_state=sim_state,
                                                                   genetics_on=genetics_on)
 
-    infection_lookup, infection_barcodes, eir_today = vector_to_human_transmission(human_lookup=human_lookup,
-                                                                                   infection_lookup=infection_lookup,
-                                                                                   vector_lookup=vector_lookup,
-                                                                                   infection_barcodes=infection_barcodes,
-                                                                                   vector_barcodes=vector_barcodes,
-                                                                                   run_parameters=run_parameters,
-                                                                                   previous_max_infection_id=previous_max_infection_id,
+    infection_lookup, infection_barcodes, eir_today = vector_to_human_transmission(sim_state=sim_state,
                                                                                    genetics_on=genetics_on)
     previous_max_infection_id = max(previous_max_infection_id, infection_lookup["infection_id"].max())
 
@@ -277,12 +271,12 @@ def evolve(human_lookup,
                                                                                                 infection_barcodes,
                                                                                                 vector_barcodes)
 
-    return_dict = {"infection_lookup": infection_lookup,
-                   "vector_lookup": vector_lookup,
-                   "infection_barcodes": infection_barcodes,
-                   "vector_barcodes": vector_barcodes,
-                   "root_genotypes": root_genotypes,
-                   "previous_max_infection_id": previous_max_infection_id,
-                   "eir_today": eir_today}
+    sim_state["infection_lookup"] = infection_lookup
+    sim_state["vector_lookup"] = vector_lookup
+    sim_state["infection_barcodes"] = infection_barcodes
+    sim_state["vector_barcodes"] = vector_barcodes
+    sim_state["root_genotypes"] = root_genotypes
+    sim_state["previous_max_infection_id"] = previous_max_infection_id
+    sim_state["eir"] = eir_today
 
-    return return_dict
+    return sim_state
