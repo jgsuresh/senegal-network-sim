@@ -2,7 +2,7 @@ N_barcode_positions: 24
 N_individuals: 10000
 N_initial_infections: 4000
 bites_from_infected_mosquito_distribution: constant
-daily_bite_rate: 1
+daily_bite_rate: 0.1
 daily_bite_rate_distribution: constant
 demographics_on: false
 importation_allele_freq: 0.2
@@ -16,10 +16,10 @@ mean_bites_from_infected_mosquito: 1
 prob_survive_to_infectiousness: 1
 run_environment: comps
 save_all_data: true
-sim_duration: 1500
-timesteps_between_outputs: 10
-track_roots: false
+sim_duration: 1000
+timesteps_between_outputs: 50
+track_roots: true
 vector_picks_up_all_strains: true
 weibull_infection_duration_shape: 2.2
 immunity_on: true
-transmission_burnin_period: 300
+burnin_duration: 500

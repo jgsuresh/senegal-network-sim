@@ -89,7 +89,8 @@ def ibs_parallel(all_genotypes):
                 IBS[i, j] = np.sum(all_genotypes[i] == all_genotypes[j])/24
             else:
                 IBS[i,j] = np.nan
-    return np.nanmean(IBS)
+    return IBS
+    # return np.nanmean(IBS)
 @njit()
 def ibs_singlethread(all_genotypes):
     # Loop over all pairs of genotypes and calculate IBS
@@ -102,7 +103,8 @@ def ibs_singlethread(all_genotypes):
                 IBS[i, j] = np.sum(all_genotypes[i] == all_genotypes[j])/24
             else:
                 IBS[i,j] = np.nan
-    return np.nanmean(IBS)
+    # return np.nanmean(IBS)
+    return IBS
 
 def strain_persistence(genotype_df):
     # Get distribution of number of timesteps each strain is present

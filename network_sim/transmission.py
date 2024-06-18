@@ -252,7 +252,7 @@ def evolve(sim_state,
     vector_lookup, vector_barcodes = human_to_vector_transmission(sim_state=sim_state,
                                                                   genetics_on=genetics_on)
 
-    infection_lookup, infection_barcodes, eir_today = vector_to_human_transmission(sim_state=sim_state,
+    infection_lookup, infection_barcodes, infectious_bites_today = vector_to_human_transmission(sim_state=sim_state,
                                                                                    genetics_on=genetics_on)
     previous_max_infection_id = max(previous_max_infection_id, infection_lookup["infection_id"].max())
 
@@ -277,6 +277,6 @@ def evolve(sim_state,
     sim_state["vector_barcodes"] = vector_barcodes
     sim_state["root_genotypes"] = root_genotypes
     sim_state["previous_max_infection_id"] = previous_max_infection_id
-    sim_state["eir"] = eir_today
+    sim_state["daily_eir"] = infectious_bites_today/human_lookup.shape[0]
 
     return sim_state

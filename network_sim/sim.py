@@ -8,6 +8,7 @@ from network_sim.burnin import burnin_starting_infections
 from network_sim.host import draw_individual_ages, \
     initialize_new_human_infections
 from network_sim.immunity import predict_emod_pfemp1_variant_fraction
+from network_sim.post_process import post_process_simulation
 from network_sim.transmission import evolve
 from network_sim.vector import determine_biting_rates
 
@@ -64,12 +65,36 @@ def generate_human_lookup(N_individuals, run_parameters, verbose=True):
     biting_rate, relative_biting_risk = determine_biting_rates(N_individuals, run_parameters)
     human_lookup["biting_rate"] = biting_rate
     if immunity_on:
-        # Initialize immunity levels assuming dummy daily eir of 0.05
+        # Initialize immunity levels assuming dummy daily eir of 0.02
         human_lookup["immunity_level"] = predict_emod_pfemp1_variant_fraction(age_in_years=human_lookup["age"],
                                                                               relative_biting_rate=relative_biting_risk,
-                                                                              daily_sim_eir=0.05)
+                                                                              daily_sim_eir=0.02)
     return human_lookup
 
+def initialize_genetics(sim_state, allele_freq=0.5):
+    # Initialize genetics - all barcodes in both humans and vectors with allele frequency 0.5
+    N_barcode_positions = sim_state["run_parameters"].get("N_barcode_positions")
+
+    n_human_infections = sim_state["infection_lookup"].shape[0]
+    all_genotypes = np.random.binomial(n=1, p=allele_freq, size=(n_human_infections, N_barcode_positions)).astype(np.int64)
+
+    track_roots = sim_state["run_parameters"].get("track_roots", False)
+    if track_roots:
+        all_barcodes = np.arange(n_human_infections).repeat(N_barcode_positions).reshape(n_human_infections, N_barcode_positions)
+        sim_state["root_genotypes"] = {i: all_genotypes[i] for i in range(n_human_infections)}
+    else:
+        all_barcodes = all_genotypes
+
+    sim_state["infection_barcodes"] = {iid: barcode for iid, barcode in zip(sim_state["infection_lookup"]["infection_id"], all_barcodes)}
+
+    # Seed vectors with random copies of human barcodes
+    n_infected_vectors = sim_state["vector_lookup"].shape[0]
+    barcode_indices = np.random.choice(n_human_infections, n_infected_vectors)
+    for vid, barcode_index in zip(sim_state["vector_lookup"]["vector_id"], barcode_indices):
+        sim_state["vector_barcodes"][vid] = {"gametocyte_barcodes": np.array([all_barcodes[barcode_index]]),
+                                             "sporozoite_barcodes": np.array([all_barcodes[barcode_index]])}
+
+    return sim_state
 @profile
 def run_sim(run_parameters, verbose=True):
     if verbose:
@@ -78,7 +103,8 @@ def run_sim(run_parameters, verbose=True):
     sim_duration = run_parameters["sim_duration"]
     N_individuals = run_parameters["N_individuals"]
     demographics_on = run_parameters.get("demographics_on", False)
-    transmission_burnin_period = run_parameters.get("transmission_burnin_period", 0)
+    burnin_duration = run_parameters.get("burnin_duration", 0)
+    sim_duration = run_parameters.get("sim_duration", 365)
     immunity_on = run_parameters.get("immunity_on", False)
     save_all_data = run_parameters.get("save_all_data", True)
     timesteps_between_outputs = run_parameters.get("timesteps_between_outputs", 1)
@@ -123,8 +149,8 @@ def run_sim(run_parameters, verbose=True):
     # TESTING ONLY, random barcodes
     # initial_sim_state["infection_barcodes"] = {iid: np.random.binomial(n=1,p=0.05, size=run_parameters["N_barcode_positions"]).astype(np.int64) for iid in infection_lookup["infection_id"]}
 
-    # Run the burn-in period
-    for t in range(transmission_burnin_period):
+    # Run the burn-in period - genetics is off
+    for t in range(burnin_duration):
         if t % 10 == 0 and t >0 and verbose:
             print(f"Time {t}")
             print(new_state_summary)
@@ -138,135 +164,95 @@ def run_sim(run_parameters, verbose=True):
                                           "n_humans_infected": [new_state["infection_lookup"]["human_id"].nunique()],
                                           "n_infected_vectors": [new_state["vector_lookup"].shape[0]],
                                           "n_unique_genotypes": count_unique_barcodes(new_state["infection_barcodes"]),
-                                          "n_roots": [len(new_state["root_genotypes"])]})
-
+                                          "n_roots": [len(new_state["root_genotypes"])],
+                                          "daily_eir": [new_state["daily_eir"]]})
         summary_statistics = pd.concat([summary_statistics, new_state_summary], ignore_index=True)
 
 
-        if t > 30 and immunity_on:
+        if t > 40 and immunity_on and t % 10 == 0:
             # Assume system has stabilized enough to start using EIR directly to predict immunity levels
             # Note: assuming ~equilibrium immunity
 
-            # Get average EIR over last 10 timesteps
-            mean_daily_eir = summary_statistics["n_infected_vectors"].iloc[-10:].mean()/human_lookup.shape[0]
+            # Get average EIR over last 20 days
+            mean_daily_eir = summary_statistics["daily_eir"].iloc[-20:].mean()
 
             human_lookup["immunity_level"] = predict_emod_pfemp1_variant_fraction(age_in_years=human_lookup["age"],
                                                                                   relative_biting_rate=human_lookup["biting_rate"],
                                                                                   daily_sim_eir=mean_daily_eir)
+
+    print("Burnin completed. Initializing genetics and continuing sim.")
+    new_state = initialize_genetics(new_state, allele_freq=0.5)
+
+    barcodes_to_save = {}
+
+    # Continue simulation with genetics on
+    for t in range(burnin_duration, burnin_duration + sim_duration):
+        if t % 10 == 0 and t >0 and verbose:
+            print(f"Time {t}")
+            print(new_state_summary)
+
+        new_state = evolve(sim_state=new_state,
+                           genetics_on=True,
+                           )
+
+        new_state_summary = pd.DataFrame({"time": [t+1],
+                                          "n_infections": [new_state["infection_lookup"].shape[0]],
+                                          "n_humans_infected": [new_state["infection_lookup"]["human_id"].nunique()],
+                                          "n_infected_vectors": [new_state["vector_lookup"].shape[0]],
+                                          "n_unique_genotypes": count_unique_barcodes(new_state["infection_barcodes"]),
+                                          "n_roots": [len(new_state["root_genotypes"])],
+                                          "daily_eir": [new_state["daily_eir"]]})
+        summary_statistics = pd.concat([summary_statistics, new_state_summary], ignore_index=True)
+
+
+        if t > 40 and immunity_on and t % 10 == 0:
+            # Assume system has stabilized enough to start using EIR directly to predict immunity levels
+            # Note: assuming ~equilibrium immunity
+
+            # Get average EIR over last 20 days
+            mean_daily_eir = summary_statistics["daily_eir"].iloc[-20:].mean()
+
+            human_lookup["immunity_level"] = predict_emod_pfemp1_variant_fraction(age_in_years=human_lookup["age"],
+                                                                                  relative_biting_rate=human_lookup["biting_rate"],
+                                                                                  daily_sim_eir=mean_daily_eir)
+
+        if t % timesteps_between_outputs == 0 and save_all_data:
+            barcodes_to_save[t] = new_state["infection_barcodes"].copy()
+
+    # ================================================================================================================
+    # END OF SIMULATION
+    print("Simulation concluded. Wrapping up")
+
+    if t % timesteps_between_outputs != 0 and save_all_data:
+        barcodes_to_save[t] = new_state["infection_barcodes"].copy()
 
     import matplotlib.pyplot as plt
     plt.plot(summary_statistics["time"], summary_statistics["n_infections"], label="Number of infections")
     plt.plot(summary_statistics["time"], summary_statistics["n_humans_infected"], label="Number of infected humans")
     plt.plot(summary_statistics["time"], summary_statistics["n_infected_vectors"], label="Number of vectors")
     plt.plot(summary_statistics["time"], summary_statistics["n_unique_genotypes"], label="Number of unique genotypes")
+    plt.axvline(burnin_duration, color='gray', linestyle='dashed')
     plt.xlabel("Time")
     plt.ylabel("Count")
     plt.legend()
-    plt.savefig("after_burnin.png")
+    plt.savefig("transmission.png")
 
-    # After burn-in is completed, assign barcodes to each infection
+    # Save final state of sim
+    new_state["human_lookup"].to_csv("human_lookup.csv", index=False)
+    new_state["infection_lookup"].to_csv("infection_lookup.csv", index=False)
+    new_state["vector_lookup"].to_csv("vector_lookup.csv", index=False)
 
+    post_process_simulation(final_sim_state=new_state,
+                            barcodes_to_save=barcodes_to_save,
+                            root_genotypes=new_state["root_genotypes"],
+                            run_parameters=run_parameters,
+                            coi_plot=True,
+                            ibx_plot=True,
+                            clone_plot=True,
+                            within_host_ibx_plot=True,
+                            allele_freq_plot=True)
 
-
-
-
-    if False:
-
-        # Set up full dataframe for post-processing analysis
-        full_df = infection_lookup[["human_id", "genotype"]]
-        full_df["t"] = 0
-        timesteps_to_save = np.arange(0, sim_duration, timesteps_between_outputs)
-
-
-
-        # Loop over timesteps
-        for t in range(sim_duration):
-            infection_lookup, vector_lookup, root_lookup = evolve(infection_lookup,
-                                                                        vector_lookup,
-                                                                        root_lookup,
-                                                                        biting_rates=biting_rates,
-                                                                        run_parameters=run_parameters)
-
-            this_timestep_summary = pd.DataFrame({"time": [t+1],
-                                                  "n_infections": [infection_lookup.shape[0]],
-                                                  "n_humans_infected": [infection_lookup["human_id"].nunique()],
-                                                  "n_infected_vectors": [vector_lookup.shape[0]],
-                                                  "n_unique_genotypes": count_unique_barcodes(infection_lookup),
-                                                  "n_roots": [root_lookup.shape[0]]})
-            # "polygenomic_fraction": polygenomic_fraction(human_infection_lookup),
-            # "coi": complexity_of_infection(human_infection_lookup)})
-
-            if t > 0 and t % 20 == 0 and verbose:
-                pd.set_option('display.max_columns', 10)
-                print(this_timestep_summary)
-
-            # Record summary statistics
-            summary_statistics = pd.concat([summary_statistics, this_timestep_summary], ignore_index=True)
-
-
-            if save_all_data and t in timesteps_to_save:
-                save_df = infection_lookup[["human_id", "genotype"]]
-                save_df["t"] = t
-                full_df = pd.concat([full_df, save_df], ignore_index=True)
-
-        if verbose:
-            print(summary_statistics)
-
-        import matplotlib.pyplot as plt
-        plt.plot(summary_statistics["time"], summary_statistics["n_infections"], label="Number of infections")
-        plt.plot(summary_statistics["time"], summary_statistics["n_humans_infected"], label="Number of infected humans")
-        plt.plot(summary_statistics["time"], summary_statistics["n_infected_vectors"], label="Number of vectors")
-        plt.plot(summary_statistics["time"], summary_statistics["n_unique_genotypes"], label="Number of unique genotypes")
-        plt.plot(summary_statistics["time"], summary_statistics["n_roots"], label="Number of roots")
-        plt.legend()
-        plt.savefig("transmission.png")
-
-        # Save final state
-        summary_statistics.to_csv("summary_statistics.csv", index=False)
-        # human_lookup.to_csv("human_lookup.csv", index=False)
-        vector_lookup.to_csv("vector_lookup.csv", index=False)
-        infection_lookup.to_csv("human_infection_lookup.csv", index=False)
-        # full_df.to_csv("full_df.csv", index=False)
-
-        if track_roots:
-            save_genotypes(full_df, root_lookup)
-        else:
-            save_genotypes(full_df)
-
-        # Save info about humans
-        human_info = pd.DataFrame({"human_id": human_ids,
-                                   "bite_rates": biting_rates})
-        if demographics_on:
-            human_info["age"] = run_parameters["human_ages"]
-        human_info.to_csv("human_info.csv", index=False)
-
-        if track_roots:
-            root_lookup.to_csv("root_lookup.csv", index=False)
-
-        pass
 
 if __name__ == "__main__":
     run_parameters = load_parameters("config.yaml")
     run_sim(run_parameters, verbose=True)
-
-    # cProfile.run('main()')
-    # pr = cProfile.Profile()
-    # pr.enable()
-    #
-    # # Replace 'main()' with the function or code you want to profile
-    # main()
-    #
-    # pr.disable()
-    # s = io.StringIO()
-    # ps = pstats.Stats(pr, stream=s).sort_stats('cumulative')
-    # ps.print_stats()
-    #
-    # print(s.getvalue())
-
-    # Estimate performance of the code
-    # start = time.perf_counter()
-    # main()
-    # end = time.perf_counter()
-    # print("Elapsed = {}s".format((end - start)))
-
-
