@@ -1,4 +1,4 @@
-from line_profiler_pycharm import profile
+# from line_profiler_pycharm import profile
 
 import numpy as np
 import pandas as pd
@@ -64,10 +64,11 @@ def generate_human_lookup(N_individuals, run_parameters, verbose=True):
         print("Note: currently assumes that relative biting rates are constant for each person across the simulation.")
     biting_rate, relative_biting_risk = determine_biting_rates(N_individuals, run_parameters)
     human_lookup["biting_rate"] = biting_rate
+    human_lookup["relative_biting_risk"] = relative_biting_risk
     if immunity_on:
         # Initialize immunity levels assuming dummy daily eir of 0.02
         human_lookup["immunity_level"] = predict_emod_pfemp1_variant_fraction(age_in_years=human_lookup["age"],
-                                                                              relative_biting_rate=relative_biting_risk,
+                                                                              relative_biting_risk=human_lookup["relative_biting_risk"],
                                                                               daily_sim_eir=0.02)
     return human_lookup
 
@@ -95,7 +96,7 @@ def initialize_genetics(sim_state, allele_freq=0.5):
                                              "sporozoite_barcodes": np.array([all_barcodes[barcode_index]])}
 
     return sim_state
-@profile
+# @profile
 def run_sim(run_parameters, verbose=True):
     if verbose:
         print(run_parameters)
@@ -177,7 +178,7 @@ def run_sim(run_parameters, verbose=True):
             mean_daily_eir = summary_statistics["daily_eir"].iloc[-20:].mean()
 
             human_lookup["immunity_level"] = predict_emod_pfemp1_variant_fraction(age_in_years=human_lookup["age"],
-                                                                                  relative_biting_rate=human_lookup["biting_rate"],
+                                                                                  relative_biting_risk=human_lookup["relative_biting_risk"],
                                                                                   daily_sim_eir=mean_daily_eir)
 
     print("Burnin completed. Initializing genetics and continuing sim.")
@@ -213,7 +214,7 @@ def run_sim(run_parameters, verbose=True):
             mean_daily_eir = summary_statistics["daily_eir"].iloc[-20:].mean()
 
             human_lookup["immunity_level"] = predict_emod_pfemp1_variant_fraction(age_in_years=human_lookup["age"],
-                                                                                  relative_biting_rate=human_lookup["biting_rate"],
+                                                                                  relative_biting_risk=human_lookup["relative_biting_risk"],
                                                                                   daily_sim_eir=mean_daily_eir)
 
         if t % timesteps_between_outputs == 0 and save_all_data:
@@ -238,9 +239,15 @@ def run_sim(run_parameters, verbose=True):
     plt.savefig("transmission.png")
 
     # Save final state of sim
+    summary_statistics.to_csv("summary_statistics.csv", index=False)
     new_state["human_lookup"].to_csv("human_lookup.csv", index=False)
     new_state["infection_lookup"].to_csv("infection_lookup.csv", index=False)
     new_state["vector_lookup"].to_csv("vector_lookup.csv", index=False)
+
+    # Check that there is malaria at the end
+    if new_state["infection_lookup"].shape[0] == 0:
+        print("No malaria at end of simulation. Skip post-processing.")
+        return
 
     post_process_simulation(final_sim_state=new_state,
                             barcodes_to_save=barcodes_to_save,

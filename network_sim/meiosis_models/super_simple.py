@@ -1,7 +1,7 @@
 import random
 
 import numpy as np
-from line_profiler_pycharm import profile
+# from line_profiler_pycharm import profile
 from numba import njit
 from scipy.stats import nbinom
 

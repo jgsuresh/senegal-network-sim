@@ -5,12 +5,20 @@ from network_sim import manifest
 from network_sim.vector import age_based_surface_area
 
 
-def predict_emod_pfemp1_variant_fraction(age_in_years, relative_biting_rate, daily_sim_eir):
+def predict_emod_pfemp1_variant_fraction(age_in_years, relative_biting_risk, daily_sim_eir):
     # Predict equilibrium immunity level that EMOD would give based on age, relative biting rate, and daily simulated EIR
     # From logistic function fit across EMOD sweep
     # see C:\Users\joshsu\OneDrive - Bill & Melinda Gates Foundation\Code\emod-network-testing\analysis\240520\summarize_emod_infections.ipynb
 
-    individual_daily_eir = daily_sim_eir * relative_biting_rate * age_based_surface_area(age_in_years)
+    # Note: relative_biting_rate is a factor that scales the biting rate for each individual compared to the mean
+
+    # Impose minimum on daily_sim_eir
+    daily_sim_eir = np.maximum(daily_sim_eir, 1e-5)
+
+    if np.sum(age_in_years <= 0) > 0 or np.sum(relative_biting_risk <= 0) > 0 or np.sum(daily_sim_eir <= 0) > 0:
+        raise ValueError("Age, relative_biting_rate, and daily_sim_eir must be positive")
+
+    individual_daily_eir = daily_sim_eir * relative_biting_risk * age_based_surface_area(age_in_years)
 
     # a = 1.933115996606731
     # b = 0.8970967578560122

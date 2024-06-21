@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from line_profiler_pycharm import profile
+# from line_profiler_pycharm import profile
 
 from network_sim.host import get_simple_infection_stats, initialize_new_human_infections
 from network_sim.immunity import get_infection_stats_from_age_and_eir, \
@@ -9,7 +9,7 @@ from network_sim.importations import import_human_infections
 from network_sim.vector import determine_sporozoite_barcodes, determine_which_infection_ids_mosquito_picks_up, \
     draw_infectious_bite_number
 
-@profile
+# @profile
 def human_to_vector_transmission(sim_state,
                                  genetics_on=False,
                                  ):
@@ -73,10 +73,12 @@ def human_to_vector_transmission(sim_state,
     })
 
     if genetics_on:
+        vector_strain_pickup_mode = run_parameters.get("vector_strain_pickup_mode", "rescale")
+
         for human_id, vector_id in zip(hids_to_resolve, vector_ids):
             infection_ids = determine_which_infection_ids_mosquito_picks_up(human_id=human_id,
                                                                             infection_lookup=infection_lookup,
-                                                                            vector_picks_up_all_strains=run_parameters.get("vector_picks_up_all_strains", False))
+                                                                            vector_strain_pickup_mode=vector_strain_pickup_mode)
 
             # Loop over all infection ids that mosquito is going to pick up and combine their barcodes into a gametocyte_barcodes array
             gametocyte_barcodes = np.empty([len(infection_ids), 24], dtype=np.int64)
@@ -95,7 +97,7 @@ def human_to_vector_transmission(sim_state,
 
     return vector_lookup, vector_barcodes
 
-@profile
+# @profile
 def vector_to_human_transmission(sim_state,
                                  genetics_on=True):
     # This function simulates the transmission of parasites from vectors to humans
@@ -231,7 +233,7 @@ def timestep_bookkeeping(infection_lookup, vector_lookup, infection_barcodes=Non
 
     return infection_lookup, vector_lookup, infection_barcodes, vector_barcodes
 
-@profile
+# @profile
 def evolve(sim_state,
            genetics_on=True,
            ):

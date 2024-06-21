@@ -1,5 +1,4 @@
 import numpy as np
-from line_profiler_pycharm import profile
 # from line_profiler_pycharm import profile
 from numba import njit, vectorize
 
@@ -17,6 +16,10 @@ def draw_infectious_bite_number(N_vectors, run_parameters):
         return np.ones(N_vectors)*run_parameters["mean_bites_from_infected_mosquito"]
     elif bites_from_infected_mosquito_distribution == "poisson":
         return np.random.poisson(lam=run_parameters["mean_bites_from_infected_mosquito"], size=N_vectors)
+    elif bites_from_infected_mosquito_distribution == "modified_poisson":
+        b = np.random.poisson(lam=run_parameters["mean_bites_from_infected_mosquito"], size=N_vectors)
+        b[b == 0] = 1
+        return b
     elif bites_from_infected_mosquito_distribution == "emod":
         # Draw from distribution that is used in EMOD.
         # Note that this distribution is conditioned on at least 1 bite, and mean is ~3.7
@@ -76,6 +79,9 @@ def heterogeneous_biting_risk(N_humans, run_parameters):
         return np.ones(N_humans)
     elif daily_bite_rate_distribution == "exponential":
         return np.random.exponential(scale=1, size=N_humans)
+    elif daily_bite_rate_distribution == "gamma":
+        gamma_shape = run_parameters.get("daily_bite_rate_gamma_shape", 1)
+        return np.random.gamma(shape=gamma_shape, scale=1/gamma_shape, size=N_humans)
     else:
         raise NotImplementedError
 
@@ -149,9 +155,14 @@ def _estimate_eir():
 
 
 @njit
-def simulate_bites(prob_transmit):
-    at_least_one_transmits = 1 - np.prod(1 - prob_transmit)
-    prob_transmit = prob_transmit / at_least_one_transmits
+def simulate_bites(prob_transmit, vector_strain_pickup_mode):
+    if vector_strain_pickup_mode == "rescale":
+        at_least_one_transmits = 1 - np.prod(1 - prob_transmit)
+        prob_transmit = prob_transmit / at_least_one_transmits
+    elif vector_strain_pickup_mode == "no_rescale":
+        pass
+    else:
+        raise NotImplementedError
 
     n_strains = len(prob_transmit)
 
@@ -161,30 +172,32 @@ def simulate_bites(prob_transmit):
             return list(successes)
 
 # @profile
-def determine_which_genotypes_mosquito_picks_up(human_id, infection_lookup, vector_picks_up_all_genotypes=False):
+def determine_which_genotypes_mosquito_picks_up(human_id, infection_lookup, run_parameters):
     # Note: this function is only called if mosquito is guaranteed to be infected by at least one genotype
+
+    vector_strain_pickup_mode = run_parameters.get("vector_strain_pickup_mode", "hitchhiker")
 
     # Get all infections for this human
     this_human = infection_lookup[infection_lookup["human_id"] == human_id]
     if this_human.shape[0] == 0:
         raise ValueError("Human has no infections")
 
-    if vector_picks_up_all_genotypes:
+    # If human has only 1 infection, then mosquito picks up that infection
+    if this_human.shape[0] == 1:
+        return [this_human["genotype"].iloc[0]]
+
+    if vector_strain_pickup_mode == "all":
         # If vector picks up all genotypes, then return all genotypes
         return list(this_human["genotype"])
     else:
-        # If human has only 1 infection, then mosquito picks up that infection
-        if this_human.shape[0] == 1:
-            return [this_human["genotype"].iloc[0]]
-        else:
-            # If human has multiple genotypes, then simulate bites until at least 1 genotype is picked up
-            prob_transmit = np.array(this_human["infectiousness"])
-            successes = simulate_bites(prob_transmit)
-            # Return the successful genotypes
-            return list(this_human["genotype"][successes])
+        # If human has multiple genotypes, then simulate bites until at least 1 genotype is picked up
+        prob_transmit = np.array(this_human["infectiousness"])
+        successes = simulate_bites(prob_transmit, vector_strain_pickup_mode=vector_strain_pickup_mode)
+        # Return the successful genotypes
+        return list(this_human["genotype"][successes])
 
-@profile
-def determine_which_infection_ids_mosquito_picks_up(human_id, infection_lookup, vector_picks_up_all_strains=False):
+# @profile
+def determine_which_infection_ids_mosquito_picks_up(human_id, infection_lookup, vector_strain_pickup_mode):
     # Assume mosquito is going to be infected by this person. Which infection IDs do they pick up?
 
     # Get all infections for this human
@@ -192,7 +205,7 @@ def determine_which_infection_ids_mosquito_picks_up(human_id, infection_lookup, 
     if this_human.shape[0] == 0:
         raise ValueError("Human has no infections")
 
-    if vector_picks_up_all_strains:
+    if vector_strain_pickup_mode=="all":
         # If vector picks up all genotypes, then return all genotypes
         return list(this_human["infection_id"])
     else:
@@ -202,7 +215,7 @@ def determine_which_infection_ids_mosquito_picks_up(human_id, infection_lookup, 
         else:
             # If human has multiple genotypes, then simulate bites until at least 1 genotype is picked up
             prob_transmit = np.array(this_human["infectiousness"])
-            successes = simulate_bites(prob_transmit)
+            successes = simulate_bites(prob_transmit, vector_strain_pickup_mode=vector_strain_pickup_mode)
             # Return the successful genotypes
             return list(this_human["infection_id"][successes])
 
