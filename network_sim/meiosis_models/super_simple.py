@@ -59,25 +59,53 @@ def num_oocysts_fast(): #hardcoded for speed
             return max(1, n_oocyst_choices[i])
     return n_oocyst_choices[-1]
 
+# @njit
+# def two_weighted_random_choices(weights):
+#     cumulative_weights = np.cumsum(weights)/np.sum(weights)
+#     rnd1 = np.random.rand()
+#     rnd2 = np.random.rand()
+#     return np.searchsorted(cumulative_weights, rnd1), np.searchsorted(cumulative_weights, rnd2)
+
 @njit
-def gametocyte_to_oocyst_offspring_genotypes(gametocyte_genotypes, num_oocyst_model="fpg"):
+def select_and_remove_two(arr):
+    if len(arr) < 2:
+        raise ValueError("Array must contain at least two elements.")
+
+    # Select two random indices without replacement
+    selected_indices = np.random.choice(len(arr), size=2, replace=False)
+    selected_indices.sort()  # Sort indices to avoid index shifting issues
+
+    # Retrieve the values at these indices
+    selected_items = arr[selected_indices]
+
+    # Remove the items by creating a new array excluding the selected indices
+    new_arr = np.delete(arr, selected_indices)
+
+    return selected_items, new_arr
+
+@njit
+def gametocyte_to_oocyst_offspring_genotypes(gametocyte_genotypes, gametocyte_counts, num_oocyst_model="fpg"):
     # Assumes gametocytype genotypes is a numpy matrix. Each row is a different genotype.
     # Assumes all oocyst offspring have equal likelihood to be onwardly transmitted.
-    # Note that in the case of selfing, all four offspring genotypes are passed on, to account for higher likelihood of onward transmission.
-    #todo Add root tracking
 
     # If there is only one genotype, clonal reproduction occurs
     if gametocyte_genotypes.shape[0] == 1:
         return gametocyte_genotypes
     else:
+        n_gametocyte_genotypes = gametocyte_genotypes.shape[0]
+
         # n_oocyst = num_oocysts(model=num_oocyst_model, min_oocysts=1)
         n_oocyst = num_oocysts_fast()
 
+        # Check that n_oocyst is not greater than np.sum(gametocyte_counts)/2
+        n_oocyst = np.minimum(n_oocyst, int(np.sum(gametocyte_counts)/2))
+
         offspring_genotypes = np.empty((n_oocyst*4, gametocyte_genotypes.shape[1]), dtype=np.int64)
+        gametocyte_choices = np.arange(n_gametocyte_genotypes).repeat(gametocyte_counts)
 
         for i in range(n_oocyst):
-            parent1_index = random.randint(0,1)
-            parent2_index = random.randint(0,1)
+            choices, gametocyte_choices = select_and_remove_two(gametocyte_choices)
+            parent1_index, parent2_index = choices
             parent1_genotype = gametocyte_genotypes[parent1_index]
 
             if parent1_index == parent2_index:
@@ -145,8 +173,8 @@ def oocyst_offspring_to_sporozoite_genotypes_numba(oocyst_offspring_genotypes):
 
 # @njit
 @njit
-def gametocyte_to_sporozoite_genotypes_numba(gametocyte_genotypes):
-    oocyst_offspring_genotypes = gametocyte_to_oocyst_offspring_genotypes(gametocyte_genotypes)
+def gametocyte_to_sporozoite_genotypes_numba(gametocyte_genotypes, gametocyte_counts):
+    oocyst_offspring_genotypes = gametocyte_to_oocyst_offspring_genotypes(gametocyte_genotypes, gametocyte_counts)
     sporozoite_genotypes = oocyst_offspring_to_sporozoite_genotypes_numba(oocyst_offspring_genotypes)
 
     # Remove duplicates - #fixme Account for different likelihoods of onward transmission

@@ -62,6 +62,10 @@ def import_human_infections(human_lookup, infection_lookup, run_parameters, root
             for infection_id, genotype in zip(new_infections["infection_id"], all_genotypes):
                 infection_barcodes[infection_id] = genotype
 
+    # Add gametocyte density information
+    from network_sim.transmission import gametocyte_density_from_infectiousness
+    new_infections["gametocyte_density"] = gametocyte_density_from_infectiousness(new_infections["infectiousness"])
+
     # Concat with existing human_infection_lookup
     infection_lookup = pd.concat([infection_lookup, new_infections], ignore_index=True)
 

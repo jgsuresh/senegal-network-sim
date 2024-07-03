@@ -250,8 +250,7 @@ def determine_sporozoite_genotypes(vector_lookup):
     return vector_lookup
 
 # @njit
-@njit
-def determine_sporozoite_barcodes(gametocyte_genotypes):
+def determine_sporozoite_barcodes(gametocyte_genotypes, gametocyte_counts):
     # Determine sporozoite genotypes (i.e. the genotypes that each vector will transmit)
     # Assumes gametocyte_genotypes are in the form of an [N_barcodes x N_barcode_sites] numpy array
 
@@ -269,7 +268,7 @@ def determine_sporozoite_barcodes(gametocyte_genotypes):
         return gametocyte_genotypes_without_duplicates
 
     # Recombination needed if multiple unique gametocyte genotypes
-    return gametocyte_to_sporozoite_genotypes_numba(gametocyte_genotypes)
+    return gametocyte_to_sporozoite_genotypes_numba(gametocyte_genotypes, gametocyte_counts)
 
 
 def determine_biting_rates(N_individuals, run_parameters):

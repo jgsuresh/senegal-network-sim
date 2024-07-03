@@ -4,6 +4,7 @@ import pandas as pd
 from network_sim.host import get_simple_infection_stats
 from network_sim.immunity import get_infection_stats_from_age_and_eir, \
     predict_infection_stats_from_pfemp1_variant_fraction
+from network_sim.transmission import gametocyte_density_from_infectiousness
 
 
 def burnin_starting_infections(human_lookup, run_parameters):
@@ -47,5 +48,8 @@ def burnin_starting_infections(human_lookup, run_parameters):
                                            "human_id": humans_to_infect,
                                            "infectiousness": infectiousness,
                                            "days_until_clearance": days_until_clearance})
+
+    # Add gametocyte density information
+    human_infection_lookup["gametocyte_density"] = gametocyte_density_from_infectiousness(human_infection_lookup["infectiousness"])
 
     return human_infection_lookup

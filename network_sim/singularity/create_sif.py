@@ -22,3 +22,8 @@ def create_singularity_sif(platform):
 if __name__ == '__main__':
     platform = Platform('Calculon')
     create_singularity_sif(platform)
+
+    # script to run once
+    # singularity image to run on COMPS - creates a singularity ID file "network_sim.id"
+    # if you update python libraries, will need to rerun this
+    
