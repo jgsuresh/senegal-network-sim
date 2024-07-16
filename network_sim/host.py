@@ -94,6 +94,17 @@ def initialize_new_human_infections(N,
     return human_infection_lookup
 
 
+def adjust_gametocyte_densities(gametocyte_densities):
+    # Mean of 1, with 3 orders of magnitude variance
+    sawtooth = np.array([0.01, 0.01, 0.01, 0.02, 0.02, 0.03, 0.03, 0.04, 0.05, 0.07,
+                         0.09, 0.12, 0.15, 0.19, 0.25, 0.33, 0.42, 0.54, 0.70, 0.90,
+                         1.17, 1.51, 1.95, 2.52, 3.25, 4.20, 5.42, 7.00, 5.42, 4.20,
+                         3.25, 2.52, 1.95, 1.51, 1.17, 0.90, 0.70, 0.54, 0.42, 0.33,
+                         0.25, 0.19, 0.15, 0.12, 0.09, 0.07, 0.05, 0.04, 0.03, 0.03,
+                         0.02, 0.02, 0.01, 0.01, 0.01])
+    return gametocyte_densities * np.random.choice(sawtooth, size=len(gametocyte_densities))
+
+
 if __name__ == "__main__":
     N_individuals = 100000
     ages = draw_individual_ages(N_individuals)

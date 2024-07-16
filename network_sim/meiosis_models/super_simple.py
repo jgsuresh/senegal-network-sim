@@ -67,56 +67,81 @@ def num_oocysts_fast(): #hardcoded for speed
 #     return np.searchsorted(cumulative_weights, rnd1), np.searchsorted(cumulative_weights, rnd2)
 
 @njit
-def select_and_remove_two(arr):
-    if len(arr) < 2:
-        raise ValueError("Array must contain at least two elements.")
+def select_and_remove_two(male_gametocyte_choices, female_gametocyte_choices):
+    if len(male_gametocyte_choices) == 0 or len(female_gametocyte_choices) == 0:
+        raise ValueError("Zero-length choices array")
 
     # Select two random indices without replacement
-    selected_indices = np.random.choice(len(arr), size=2, replace=False)
-    selected_indices.sort()  # Sort indices to avoid index shifting issues
+    selected_male_index = np.random.choice(len(male_gametocyte_choices))
+    selected_female_index = np.random.choice(len(female_gametocyte_choices))
 
     # Retrieve the values at these indices
-    selected_items = arr[selected_indices]
+    selected_male = male_gametocyte_choices[selected_male_index]
+    selected_female = female_gametocyte_choices[selected_female_index]
 
     # Remove the items by creating a new array excluding the selected indices
-    new_arr = np.delete(arr, selected_indices)
+    new_male_gametocyte_choices = np.delete(male_gametocyte_choices, selected_male_index)
+    new_female_gametocyte_choices = np.delete(female_gametocyte_choices, selected_female_index)
 
-    return selected_items, new_arr
+    return selected_male, selected_female, new_male_gametocyte_choices, new_female_gametocyte_choices
 
 @njit
-def gametocyte_to_oocyst_offspring_genotypes(gametocyte_genotypes, gametocyte_counts, num_oocyst_model="fpg"):
+def generate_gametocyte_sex(n_gametocytes):
+    gametocyte_sex = np.empty(n_gametocytes, dtype=np.int8)
+    p_male = 0.2
+    for i in np.arange(n_gametocytes):
+        if np.random.random() < p_male:
+            gametocyte_sex[i] = 0
+        else:
+            gametocyte_sex[i] = 1
+    return gametocyte_sex
+
+# @njit
+def gametocyte_to_oocyst_offspring_barcodes(gametocyte_genotypes, male_gametocyte_counts, female_gametocyte_counts, num_oocyst_model="fpg"):
     # Assumes gametocytype genotypes is a numpy matrix. Each row is a different genotype.
     # Assumes all oocyst offspring have equal likelihood to be onwardly transmitted.
 
+    n_gametocyte_genotypes = gametocyte_genotypes.shape[0]
+
     # If there is only one genotype, clonal reproduction occurs
-    if gametocyte_genotypes.shape[0] == 1:
+    if n_gametocyte_genotypes == 1:
         return gametocyte_genotypes
     else:
-        n_gametocyte_genotypes = gametocyte_genotypes.shape[0]
-
         # n_oocyst = num_oocysts(model=num_oocyst_model, min_oocysts=1)
         n_oocyst = num_oocysts_fast()
+        #todo could consider a gametocyte-dependent model for number of oocysts (e.g. https://elifesciences.org/articles/34463#fig3)
+        # Note that Jon also considered this for FPG and went with a negative binomial for now because data isn't that great.
 
-        # Check that n_oocyst is not greater than np.sum(gametocyte_counts)/2
-        n_oocyst = np.minimum(n_oocyst, int(np.sum(gametocyte_counts)/2))
+        # Check that n_oocyst is not greater than possible number of oocysts given gametocyte counts
+        total_n_male_gametocytes = np.sum(male_gametocyte_counts)
+        total_n_female_gametocytes = np.sum(female_gametocyte_counts)
+        n_oocyst = min([n_oocyst, total_n_male_gametocytes, total_n_female_gametocytes])
 
         offspring_genotypes = np.empty((n_oocyst*4, gametocyte_genotypes.shape[1]), dtype=np.int64)
-        gametocyte_choices = np.arange(n_gametocyte_genotypes).repeat(gametocyte_counts)
+        male_gametocyte_choices = np.arange(n_gametocyte_genotypes).repeat(male_gametocyte_counts)
+        female_gametocyte_choices = np.arange(n_gametocyte_genotypes).repeat(female_gametocyte_counts)
 
+        # Determine genetic outcomes for each oocyst
         for i in range(n_oocyst):
-            choices, gametocyte_choices = select_and_remove_two(gametocyte_choices)
-            parent1_index, parent2_index = choices
+            # Each oocyst has two explicit parents which are drawn without replacement from the gametocyte pool
+            parent1_index, parent2_index, male_gametocyte_choices, female_gametocyte_choices = select_and_remove_two(male_gametocyte_choices, female_gametocyte_choices)
             parent1_genotype = gametocyte_genotypes[parent1_index]
 
             if parent1_index == parent2_index:
                 # Selfing
-                offspring_genotypes[i * 4:(i + 1) * 4] = np.vstack((parent1_genotype,parent1_genotype,parent1_genotype,parent1_genotype))
+                offspring_genotypes[i * 4:(i + 1) * 4] = np.vstack((parent1_genotype,
+                                                                    parent1_genotype,
+                                                                    parent1_genotype,
+                                                                    parent1_genotype))
             else:
                 parent2_genotype = gametocyte_genotypes[parent2_index]
 
                 # check if parent1_genotype and parent2_genotype are same
                 if np.array_equal(parent1_genotype, parent2_genotype):
-                    offspring_genotypes[i * 4:(i + 1) * 4] = np.vstack((parent1_genotype,parent1_genotype,parent1_genotype,parent1_genotype))
+                    offspring_genotypes[i * 4:(i + 1) * 4] = np.vstack((parent1_genotype,
+                                                                        parent1_genotype,
+                                                                        parent1_genotype,
+                                                                        parent1_genotype))
                 else:
                     offspring_genotypes[i*4:(i+1)*4] = meiosis(parent1_genotype, parent2_genotype)
 
@@ -147,7 +172,7 @@ def num_sporozites_fast(): #hardcoded for speed
 # @njit
 # @profile
 @njit
-def oocyst_offspring_to_sporozoite_genotypes_numba(oocyst_offspring_genotypes):
+def oocyst_offspring_to_sporozoite_barcodes(oocyst_offspring_genotypes):
     # n_spz = num_sporozites(min_sporozoites=1)
     n_spz = num_sporozites_fast()
     indices = np.random.choice(oocyst_offspring_genotypes.shape[0], size=n_spz)
@@ -172,18 +197,19 @@ def oocyst_offspring_to_sporozoite_genotypes_numba(oocyst_offspring_genotypes):
 #         return sporozoite_genotypes_without_duplicates
 
 # @njit
-@njit
-def gametocyte_to_sporozoite_genotypes_numba(gametocyte_genotypes, gametocyte_counts):
-    oocyst_offspring_genotypes = gametocyte_to_oocyst_offspring_genotypes(gametocyte_genotypes, gametocyte_counts)
-    sporozoite_genotypes = oocyst_offspring_to_sporozoite_genotypes_numba(oocyst_offspring_genotypes)
+def gametocyte_to_sporozoite_barcodes(gametocyte_barcodes, male_gametocyte_counts, female_gametocyte_counts):
+    oocyst_offspring_barcodes = gametocyte_to_oocyst_offspring_barcodes(gametocyte_barcodes, male_gametocyte_counts, female_gametocyte_counts)
+    sporozoite_barcodes = oocyst_offspring_to_sporozoite_barcodes(oocyst_offspring_barcodes)
 
     # Remove duplicates - #fixme Account for different likelihoods of onward transmission
-    if sporozoite_genotypes.shape[0] == 1:
-        return sporozoite_genotypes
+    if sporozoite_barcodes.shape[0] == 1:
+        return sporozoite_barcodes
     else:
-        # sporozoite_genotypes_without_duplicates = np.unique(sporozoite_genotypes, axis=0)
-        sporozoite_genotypes_without_duplicates = find_unique_rows(sporozoite_genotypes)
-        return sporozoite_genotypes_without_duplicates
+        #fixme Allow for different sporozoite barcodes to have different weights
+
+        # sporozoite_barcodes_without_duplicates = np.unique(sporozoite_barcodes, axis=0)
+        sporozoite_barcodes_without_duplicates = find_unique_rows(sporozoite_barcodes)
+        return sporozoite_barcodes_without_duplicates
 
 # def _explore_sporozoite_diversity(n_unique_gametocyte_genotypes=10, n_barcode_positions=15):
 #     # Compute number of unique genotypes in sporozoites

@@ -101,15 +101,11 @@ def run_sim(run_parameters, verbose=True):
     if verbose:
         print(run_parameters)
 
-    sim_duration = run_parameters["sim_duration"]
     N_individuals = run_parameters["N_individuals"]
-    demographics_on = run_parameters.get("demographics_on", False)
     burnin_duration = run_parameters.get("burnin_duration", 0)
     sim_duration = run_parameters.get("sim_duration", 365)
-    immunity_on = run_parameters.get("immunity_on", False)
     save_all_data = run_parameters.get("save_all_data", True)
     timesteps_between_outputs = run_parameters.get("timesteps_between_outputs", 1)
-    track_roots = run_parameters.get("track_roots", False)
     immunity_on = run_parameters.get("immunity_on", False)
 
     human_lookup = generate_human_lookup(N_individuals, run_parameters, verbose=verbose)

@@ -2,7 +2,7 @@ import numpy as np
 # from line_profiler_pycharm import profile
 from numba import njit, vectorize
 
-from network_sim.meiosis_models.super_simple import gametocyte_to_sporozoite_genotypes_numba
+from network_sim.meiosis_models.super_simple import gametocyte_to_sporozoite_barcodes
 from network_sim.numba_extras import find_unique_rows
 
 
@@ -241,7 +241,7 @@ def determine_sporozoite_genotypes(vector_lookup):
 
         # Calculate the sporozoite genotypes for these rows
         # sporozoite_genotypes = multiple_infection_rows["gametocyte_genotypes"].apply(gametocyte_to_sporozoite_genotypes)
-        sporozoite_genotypes = multiple_infection_rows["gametocyte_genotypes"].apply(lambda x: np.vstack(x)).apply(gametocyte_to_sporozoite_genotypes_numba)
+        sporozoite_genotypes = multiple_infection_rows["gametocyte_genotypes"].apply(lambda x: np.vstack(x)).apply(gametocyte_to_sporozoite_barcodes)
         # sporozoite_genotypes = gametocyte_to_sporozoite_genotypes_numba(multiple_infection_rows["gametocyte_genotypes"].values.astype(np.int32))
         # sporozoite_genotypes = [list(s) for s in sporozoite_genotypes]
 
@@ -250,25 +250,26 @@ def determine_sporozoite_genotypes(vector_lookup):
     return vector_lookup
 
 # @njit
-def determine_sporozoite_barcodes(gametocyte_genotypes, gametocyte_counts):
+def determine_sporozoite_barcodes(gametocyte_barcodes, male_gametocyte_counts, female_gametocyte_counts):
     # Determine sporozoite genotypes (i.e. the genotypes that each vector will transmit)
     # Assumes gametocyte_genotypes are in the form of an [N_barcodes x N_barcode_sites] numpy array
 
-    n_gametocyte_genotypes = gametocyte_genotypes.shape[0]
-    if n_gametocyte_genotypes == 0:
+    n_gametocyte_barcodes = gametocyte_barcodes.shape[0]
+    if n_gametocyte_barcodes == 0:
         raise ValueError
 
-    # No recombination needed if only one gametocyte genotype
-    if n_gametocyte_genotypes == 1:
-        return gametocyte_genotypes
+    # No recombination needed if only one gametocyte barcode
+    if n_gametocyte_barcodes == 1:
+        return gametocyte_barcodes
+    #todo Add weights for sporozoite barcodes
 
-    # Check if we have >1 unique barcode
-    gametocyte_genotypes_without_duplicates = find_unique_rows(gametocyte_genotypes)
-    if gametocyte_genotypes_without_duplicates.shape[0] == 1:
-        return gametocyte_genotypes_without_duplicates
+    # No recombination needed if only one unique barcode
+    gametocyte_barcodes_without_duplicates = find_unique_rows(gametocyte_barcodes)
+    if gametocyte_barcodes_without_duplicates.shape[0] == 1:
+        return gametocyte_barcodes_without_duplicates
 
     # Recombination needed if multiple unique gametocyte genotypes
-    return gametocyte_to_sporozoite_genotypes_numba(gametocyte_genotypes, gametocyte_counts)
+    return gametocyte_to_sporozoite_barcodes(gametocyte_barcodes, male_gametocyte_counts, female_gametocyte_counts)
 
 
 def determine_biting_rates(N_individuals, run_parameters):

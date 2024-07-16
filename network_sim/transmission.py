@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 # from line_profiler_pycharm import profile
 
-from network_sim.host import get_simple_infection_stats, initialize_new_human_infections
+from network_sim.host import adjust_gametocyte_densities, get_simple_infection_stats, initialize_new_human_infections
 from network_sim.immunity import get_infection_stats_from_age_and_eir, \
     predict_infection_stats_from_pfemp1_variant_fraction
 from network_sim.importations import import_human_infections
@@ -43,12 +43,11 @@ def human_to_vector_transmission(sim_state,
     if df_today["n_vectors_bit_and_will_survive_to_infect"].sum() == 0:
         return vector_lookup, vector_barcodes
 
-    # Focus only on humans who have >= 1 successful bite today
+    # Focus only on humans who have successfully infected >= 1 vector
     df_today = df_today[df_today["n_vectors_bit_and_will_survive_to_infect"] > 0]
 
-    # Take each person's infectiousness to be the max of all infections they carry (DEPRECATED)
-    # df_today['infectiousness'] = df_today['human_id'].map(infection_lookup.groupby('human_id')['infectiousness'].max())
     # Get aggregate infectiousness of person by treating each infection independently
+    # df_today['infectiousness'] = df_today['human_id'].map(infection_lookup.groupby('human_id')['infectiousness'].apply(lambda x: np.max(x)))
     df_today['infectiousness'] = df_today['human_id'].map(infection_lookup.groupby('human_id')['infectiousness'].apply(lambda x: 1-np.prod(1-x)))
 
     df_today["n_vectors_to_resolve"] = np.random.binomial(n=df_today["n_vectors_bit_and_will_survive_to_infect"],
@@ -75,14 +74,19 @@ def human_to_vector_transmission(sim_state,
     })
 
     if genetics_on:
+        # jitter_gametocyte_densities = run_parameters.get("jitter_gametocyte_densities", False)
+
         for human_id, vector_id in zip(hids_to_resolve, vector_ids):
             infection_ids = infection_lookup["infection_id"][infection_lookup["human_id"] == human_id]
             gametocyte_densities = infection_lookup[infection_lookup["infection_id"].isin(infection_ids)]["gametocyte_density"].values
 
+            # if jitter_gametocyte_densities:
+            #     gametocyte_densities = adjust_gametocyte_densities(gametocyte_densities)
+
             # Mosquito does blood draw of size 1 microliter
             gametocyte_counts = np.random.poisson(lam=gametocyte_densities).astype(int)
 
-            # Minimum of 2 gametocytes are needed for transmission
+            # Minimum of 2 total gametocytes are needed for transmission
             if np.sum(gametocyte_counts) < 2:
                 # Delete the vector from the new vector lookup
                 new_vector_lookup = new_vector_lookup[new_vector_lookup["vector_id"] != vector_id]
@@ -92,38 +96,20 @@ def human_to_vector_transmission(sim_state,
             infection_ids = infection_ids[gametocyte_counts > 0]
             gametocyte_counts = gametocyte_counts[gametocyte_counts > 0]
 
+            # Assign sex to gametocytes
+            male_gametocyte_counts = np.random.binomial(n=gametocyte_counts, p=0.2)
+            female_gametocyte_counts = gametocyte_counts-male_gametocyte_counts
+            # Must have at least 1 gametocyte of each sex for transmission
+            if np.sum(male_gametocyte_counts) == 0 or np.sum(female_gametocyte_counts) == 0:
+                # Delete the vector from the new vector lookup
+                new_vector_lookup = new_vector_lookup[new_vector_lookup["vector_id"] != vector_id]
+                continue
+
             gametocyte_barcodes = np.empty([len(infection_ids), 24], dtype=np.int64)
             for i, iid in enumerate(infection_ids):
                 gametocyte_barcodes[i, :] = infection_barcodes[iid]
 
-            if len(infection_ids) == 0:
-                pass
-            print(gametocyte_barcodes.shape[0])
-            if gametocyte_barcodes.shape[0] == 0:
-                print("hi")
-                pass
-            # print(gametocyte_barcodes.shape)
-
-            sporozoite_barcodes = determine_sporozoite_barcodes(gametocyte_barcodes, gametocyte_counts)
-
-            # gametocyte_densities = np.empty(len(infection_ids))
-            # for i, iid in enumerate(infection_ids):
-            #     gametocyte_densities[i] = infection_lookup.loc[infection_lookup["infection_id"] == iid, "gametocyte_density"].values[0]
-
-
-            # # Determine which infections the mosquito is going to pick up
-            # infection_ids = determine_which_infection_ids_mosquito_picks_up(human_id=human_id,
-            #                                                                 infection_lookup=infection_lookup)
-            #
-            # # Loop over all infection ids that mosquito is going to pick up and combine their barcodes into a gametocyte_barcodes array
-            # gametocyte_barcodes = np.empty([len(infection_ids), 24], dtype=np.int64)
-            # gametocyte_densities = np.empty(len(infection_ids))
-            # for i, iid in enumerate(infection_ids):
-            #     gametocyte_barcodes[i, :] = infection_barcodes[iid]
-            #     gametocyte_densities[i] = infection_lookup.loc[infection_lookup["infection_id"] == iid, "infectiousness"].values[0]
-
-            # # Determine the sporozoite barcodes that result from the gametocyte barcodes
-            # sporozoite_barcodes = determine_sporozoite_barcodes(gametocyte_barcodes, gametocyte_densities)
+            sporozoite_barcodes = determine_sporozoite_barcodes(gametocyte_barcodes, male_gametocyte_counts, female_gametocyte_counts)
 
             vector_barcodes[vector_id] = {"gametocyte_barcodes": gametocyte_barcodes,
                                           "sporozoite_barcodes": sporozoite_barcodes}
@@ -177,7 +163,7 @@ def vector_to_human_transmission(sim_state,
 
     # New infectious bites delivered proportionally based on bite rate
     weights = human_lookup["biting_rate"]/np.sum(human_lookup["biting_rate"])
-
+    # Biting with replacement because the same human can be bitten multiple times
     vectors_biting_today["human_id"] = np.random.choice(human_lookup["human_id"], size=n_new_infectious_bites, p=weights, replace=True)
 
     # For simplicity, sort vectors_biting_today by human_id
@@ -197,20 +183,12 @@ def vector_to_human_transmission(sim_state,
                                    "days_until_clearance": infection_duration})
 
     if genetics_on:
-        # If genetics is on, then each infection is actually repeated a number of times depending on number of sporozoite barcodes that are being transmitted
+        # If genetics is on, then each infection is actually repeated a number of times depending on number of sporozoite barcodes that are cotransmitted
         # Repeat the rows of new_infections based on the number of sporozoite barcodes
 
         # Loop over all vectors biting today and determine the sporozoite barcodes that they are carrying
-        n_sporozoites_per_vector = []
-        for i in range(vectors_biting_today.shape[0]):
-            vector_id = vectors_biting_today["vector_id"].iloc[i]
-
-            sporozoite_barcodes = vector_barcodes[vector_id]["sporozoite_barcodes"]
-            n_sporozoites = sporozoite_barcodes.shape[0]
-            n_sporozoites_per_vector.append(n_sporozoites)
-
+        n_sporozoites_per_vector = [vector_barcodes[vector_id]["sporozoite_barcodes"].shape[0] for vector_id in vectors_biting_today["vector_id"]]
         new_infections = new_infections.loc[np.repeat(new_infections.index, n_sporozoites_per_vector)].reset_index(drop=True)
-
 
 
     # Add infection ID:
@@ -225,7 +203,9 @@ def vector_to_human_transmission(sim_state,
             human_id, vector_id = i
             sporozoite_barcodes = vector_barcodes[vector_id]["sporozoite_barcodes"]
 
-            if len(sporozoite_barcodes) != group.shape[0]:
+            n_sporozoite_barcodes = sporozoite_barcodes.shape[0]
+
+            if n_sporozoite_barcodes != group.shape[0]:
                 raise ValueError("Number of sporozoite barcodes must match number of infections")
 
             for j, s in enumerate(sporozoite_barcodes):
@@ -233,10 +213,9 @@ def vector_to_human_transmission(sim_state,
                 infection_barcodes[infection_id] = s
 
             # Adjust the infectiousness of the cotransmitted strains if there are more than 1
-            # raise NotImplementedError
-            if len(sporozoite_barcodes) > 1:
+            if n_sporozoite_barcodes > 1:
                 unadjusted_infectiousness = group["infectiousness"].values[0]
-                adjusted_infectiousness = adjust_cotransmission_infectiousness(unadjusted_infectiousness, len(sporozoite_barcodes))
+                adjusted_infectiousness = adjust_cotransmission_infectiousness(unadjusted_infectiousness, n_sporozoite_barcodes)
                 new_infections.loc[group.index, "infectiousness"] = adjusted_infectiousness
 
     # Remove extraneous columns that we don't need anymore
@@ -305,21 +284,16 @@ def evolve(sim_state,
 
     run_parameters = sim_state["run_parameters"]
     human_lookup = sim_state["human_lookup"]
-    infection_lookup = sim_state["infection_lookup"]
-    vector_lookup = sim_state["vector_lookup"]
-    infection_barcodes = sim_state["infection_barcodes"]
-    vector_barcodes = sim_state["vector_barcodes"]
     root_genotypes = sim_state["root_genotypes"]
     previous_max_infection_id = sim_state["previous_max_infection_id"]
 
     include_importations = run_parameters.get("include_importations", False)
-    immunity_on = run_parameters.get("immunity_on", False)
 
     vector_lookup, vector_barcodes = human_to_vector_transmission(sim_state=sim_state,
                                                                   genetics_on=genetics_on)
 
     infection_lookup, infection_barcodes, infectious_bites_today = vector_to_human_transmission(sim_state=sim_state,
-                                                                                   genetics_on=genetics_on)
+                                                                                                genetics_on=genetics_on)
     previous_max_infection_id = max(previous_max_infection_id, infection_lookup["infection_id"].max())
 
     if include_importations:
