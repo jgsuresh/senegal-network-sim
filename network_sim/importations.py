@@ -2,7 +2,8 @@ import numpy as np
 import pandas as pd
 # from line_profiler_pycharm import profile
 
-from network_sim.host import get_simple_infection_stats, initialize_new_human_infections
+from network_sim.host import gametocyte_density_from_infectiousness, get_simple_infection_stats, \
+    initialize_new_human_infections
 from network_sim.immunity import predict_infection_stats_from_pfemp1_variant_fraction
 
 
@@ -63,7 +64,6 @@ def import_human_infections(human_lookup, infection_lookup, run_parameters, root
                 infection_barcodes[infection_id] = genotype
 
     # Add gametocyte density information
-    from network_sim.transmission import gametocyte_density_from_infectiousness
     new_infections["gametocyte_density"] = gametocyte_density_from_infectiousness(new_infections["infectiousness"])
 
     # Concat with existing human_infection_lookup

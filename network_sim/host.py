@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from numba import njit, vectorize
 from scipy.special import gamma
 
 from network_sim.immunity import get_infection_stats_from_age_and_eir, predict_emod_pfemp1_variant_fraction
@@ -160,4 +161,70 @@ def get_simple_infection_stats(N_infections, run_parameters):
     duration = draw_infection_durations_from_simple_distribution(N_infections, run_parameters)
     infectiousness = draw_infectiousness_from_simple_distribution(N_infections, run_parameters)
     return duration, infectiousness
+
+@njit
+def gametocyte_density_from_infectiousness(infectiousness):
+    # Inverting EMOD function which relates gametocyte density to infectiousness
+    base_gametocyte_mosquito_survival = 0.002011099
+    return -np.log(1 - infectiousness) / (base_gametocyte_mosquito_survival)
+@njit
+def infectiousness_from_gametocyte_density(gametocyte_density):
+    # EMOD function which relates gametocyte density to infectiousness
+    base_gametocyte_mosquito_survival = 0.002011099
+    return 1 - np.exp(-base_gametocyte_mosquito_survival * gametocyte_density)
+
+@njit
+def draw_gametocyte_shape_parameters(infection_durations, y_floor=1e-4):
+
+    N_infections = len(infection_durations)
+
+    t_first_max = np.random.randint(34, 37, size=N_infections)
+    h_first_max = np.random.uniform(10, 20, size=N_infections)
+
+    # m_decay = np.random.uniform(-0.15, -0.07, size=N_infections)
+
+    # Gametocytes rapidly decay after first peak.
+    # Slope is uniformly drawn from [-0.15,-0.07], and then stays at floor of y_floor
+    # However, for very short infections, take more steep slow to ensure that we end at y_floor
+    m_decay = np.empty(N_infections)
+    for i in range(N_infections):
+        m_decay_max = (np.log(y_floor) - np.log(h_first_max[i])) / (infection_durations[i] - t_first_max[i])
+
+        if m_decay_max < -0.15:
+            m_decay[i] = m_decay_max
+        elif m_decay_max > -0.07:
+            m_decay[i] = np.random.uniform(-0.15, -0.07)
+        else:
+            m_decay[i] = np.random.uniform(-0.15, m_decay_max)
+
+    return t_first_max, h_first_max, m_decay
+
+# @njit
+# @vectorize([float])
+def current_gametocyte_density(infection_age, infection_duration, aggregate_gametocyte_density, t_first_max, h_first_max, m_decay, y_floor=1e-4):
+    # Return gametocyte density at a given time point in the infection
+    if infection_age <= 21:
+        return 0.
+
+    # Gametocytes show up after 21 days and rise rapidly to first peak
+    t_start = 21
+    h_start = 1e-4
+
+    m_rise = (np.log(h_first_max) - np.log(h_start)) / (t_first_max - t_start)
+    b_rise = np.log(h_start) - m_rise * t_start
+    y_rise = np.exp(m_rise * np.arange(t_start, t_first_max+1) + b_rise)
+
+    # Gametocytes rapidly decay after first peak.
+    b_decay = np.log(h_first_max) - m_decay * t_first_max
+    y_decay = np.exp(m_decay * np.arange(t_first_max, infection_duration+1) + b_decay)
+
+    y_rise_and_decay = np.concatenate([y_rise, y_decay])
+    # Rescale to have total sum to 1
+    y_rise_and_decay = y_rise_and_decay / np.sum(y_rise_and_decay)
+
+    # Now impose floor (note that doing this after the rescaling will not guarantee that the mean is 1, but it's close enough)
+    y_rise_and_decay = np.maximum(y_rise_and_decay, y_floor)
+
+    return y_rise_and_decay[int(infection_age) - 21] * aggregate_gametocyte_density
+
 

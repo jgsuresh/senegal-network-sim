@@ -2,12 +2,12 @@ import numpy as np
 import pandas as pd
 # from line_profiler_pycharm import profile
 
-from network_sim.host import adjust_gametocyte_densities, get_simple_infection_stats, initialize_new_human_infections
-from network_sim.immunity import get_infection_stats_from_age_and_eir, \
-    predict_infection_stats_from_pfemp1_variant_fraction
+from network_sim.host import current_gametocyte_density, draw_gametocyte_shape_parameters, \
+    gametocyte_density_from_infectiousness, \
+    get_simple_infection_stats, infectiousness_from_gametocyte_density
+from network_sim.immunity import predict_infection_stats_from_pfemp1_variant_fraction
 from network_sim.importations import import_human_infections
-from network_sim.vector import determine_sporozoite_barcodes, determine_which_infection_ids_mosquito_picks_up, \
-    draw_infectious_bite_number
+from network_sim.vector import determine_sporozoite_barcodes, draw_infectious_bite_number
 
 # @profile
 def human_to_vector_transmission(sim_state,
@@ -48,7 +48,9 @@ def human_to_vector_transmission(sim_state,
 
     # Get aggregate infectiousness of person by treating each infection independently
     # df_today['infectiousness'] = df_today['human_id'].map(infection_lookup.groupby('human_id')['infectiousness'].apply(lambda x: np.max(x)))
-    df_today['infectiousness'] = df_today['human_id'].map(infection_lookup.groupby('human_id')['infectiousness'].apply(lambda x: 1-np.prod(1-x)))
+    # df_today['infectiousness'] = df_today['human_id'].map(infection_lookup.groupby('human_id')['infectiousness'].apply(lambda x: 1-np.prod(1-x)))
+    human_infectiousness_today = infection_lookup.groupby('human_id')['gametocyte_density'].sum().apply(infectiousness_from_gametocyte_density)
+    df_today['infectiousness'] = df_today['human_id'].map(human_infectiousness_today)
 
     df_today["n_vectors_to_resolve"] = np.random.binomial(n=df_today["n_vectors_bit_and_will_survive_to_infect"],
                                                           p=df_today["infectiousness"])
@@ -74,14 +76,9 @@ def human_to_vector_transmission(sim_state,
     })
 
     if genetics_on:
-        # jitter_gametocyte_densities = run_parameters.get("jitter_gametocyte_densities", False)
-
         for human_id, vector_id in zip(hids_to_resolve, vector_ids):
             infection_ids = infection_lookup["infection_id"][infection_lookup["human_id"] == human_id]
             gametocyte_densities = infection_lookup[infection_lookup["infection_id"].isin(infection_ids)]["gametocyte_density"].values
-
-            # if jitter_gametocyte_densities:
-            #     gametocyte_densities = adjust_gametocyte_densities(gametocyte_densities)
 
             # Mosquito does blood draw of size 1 microliter
             gametocyte_counts = np.random.poisson(lam=gametocyte_densities).astype(int)
@@ -174,13 +171,20 @@ def vector_to_human_transmission(sim_state,
         # Get immunity levels for corresponding human_id in vectors_biting_today. Note that same human_id can appear multiple times
         immunity_levels = vectors_biting_today["human_id"].map(human_lookup.set_index("human_id")["immunity_level"])
         infection_duration, infectiousness = predict_infection_stats_from_pfemp1_variant_fraction(immunity_levels)
+        raise NotImplementedError
     else:
         infection_duration, infectiousness = get_simple_infection_stats(n_new_infectious_bites, run_parameters)
 
+        # Correct for the fact that for 21 days, infectiousness is 0. So mean infectiousness on other days must be adjusted upwards
+        aggregate_gametocyte_density = gametocyte_density_from_infectiousness(infectiousness * infection_duration/(infection_duration-21)) * (infection_duration-21)
+
     new_infections = pd.DataFrame({"human_id": vectors_biting_today["human_id"],
                                    "vector_id": vectors_biting_today["vector_id"],
-                                   "infectiousness": infectiousness,
-                                   "days_until_clearance": infection_duration})
+                                   # "infectiousness": infectiousness,
+                                   "duration": infection_duration,
+                                   "aggregate_gametocyte_density": aggregate_gametocyte_density,
+                                   "infection_age": 1})
+
 
     if genetics_on:
         # If genetics is on, then each infection is actually repeated a number of times depending on number of sporozoite barcodes that are cotransmitted
@@ -212,17 +216,40 @@ def vector_to_human_transmission(sim_state,
                 infection_id = group["infection_id"].iloc[j]
                 infection_barcodes[infection_id] = s
 
-            # Adjust the infectiousness of the cotransmitted strains if there are more than 1
+            # # Adjust the infectiousness of the cotransmitted strains if there are more than 1
+            # if n_sporozoite_barcodes > 1:
+            #     unadjusted_infectiousness = group["infectiousness"].values[0]
+            #     adjusted_infectiousness = adjust_cotransmission_infectiousness(unadjusted_infectiousness, n_sporozoite_barcodes)
+            #     new_infections.loc[group.index, "infectiousness"] = adjusted_infectiousness
+
+            # Adjust the aggregate gametocyte density of the cotransmitted strains if there are more than 1
             if n_sporozoite_barcodes > 1:
-                unadjusted_infectiousness = group["infectiousness"].values[0]
-                adjusted_infectiousness = adjust_cotransmission_infectiousness(unadjusted_infectiousness, n_sporozoite_barcodes)
-                new_infections.loc[group.index, "infectiousness"] = adjusted_infectiousness
+                total_gametocyte_density = group["aggregate_gametocyte_density"].values[0]
+                new_infections.loc[group.index, "aggregate_gametocyte_density"] = total_gametocyte_density/n_sporozoite_barcodes
 
     # Remove extraneous columns that we don't need anymore
     new_infections = new_infections.drop(columns=["vector_id"])
 
-    # Add gametocyte density information
-    new_infections["gametocyte_density"] = gametocyte_density_from_infectiousness(new_infections["infectiousness"])
+    # Get gametocyte densities for today
+    gametocyte_timeseries_shape = run_parameters.get("gametocyte_timeseries_shape", "constant")
+    if gametocyte_timeseries_shape == "constant":
+        new_infections["gametocyte_density"] = gametocyte_density_from_infectiousness(infectiousness)
+    elif gametocyte_timeseries_shape == "peaked":
+        # Draw shape parameters for this trajectory
+        t_first_max, h_first_max, m_decay = draw_gametocyte_shape_parameters(new_infections["duration"].values)
+        new_infections["t_first_max"] = t_first_max
+        new_infections["h_first_max"] = h_first_max
+        new_infections["m_decay"] = m_decay
+
+        new_infections["gametocyte_density"] = new_infections.apply(lambda x: current_gametocyte_density(infection_age=x["infection_age"],
+                                                                                                         infection_duration=x["duration"],
+                                                                                                         aggregate_gametocyte_density=x["aggregate_gametocyte_density"],
+                                                                                                         t_first_max=x["t_first_max"],
+                                                                                                         h_first_max=x["h_first_max"],
+                                                                                                         m_decay=x["m_decay"]), axis=1)
+        # human_infection_lookup["infectiousness"] = human_infection_lookup["gametocyte_density"].apply(lambda x: infectiousness_from_gametocyte_density(x))
+    else:
+        raise ValueError("Invalid gametocyte_timeseries_shape")
 
     # Append new infections to infection lookup
     infection_lookup = pd.concat([infection_lookup, new_infections], ignore_index=True)
@@ -230,28 +257,34 @@ def vector_to_human_transmission(sim_state,
     return infection_lookup, infection_barcodes, n_new_infectious_bites
 
 
-def gametocyte_density_from_infectiousness(infectiousness):
-    # Inverting EMOD function which relates gametocyte density to infectiousness
-    base_gametocyte_mosquito_survival = 0.002011099
-    return -np.log(1 - infectiousness) / (base_gametocyte_mosquito_survival)
-
-
 def timestep_bookkeeping(infection_lookup, vector_lookup, infection_barcodes=None, vector_barcodes=None):
     # Update infections and clear any which have completed their duration
     if not infection_lookup.empty:
-        infection_lookup["days_until_clearance"] -= 1
+        infection_lookup["infection_age"] += 1
 
-        if infection_lookup["days_until_clearance"].min() == 0:
-            cleared_infection_ids = infection_lookup["infection_id"][infection_lookup["days_until_clearance"] == 0]
+        days_until_clearance = infection_lookup["duration"] - infection_lookup["infection_age"]
+
+        if days_until_clearance.min() == 0:
+            # cleared_infection_ids = infection_lookup["infection_id"][infection_lookup["days_until_clearance"] == 0]
+            cleared_infection_ids = infection_lookup["infection_id"][days_until_clearance == 0]
 
             # Remove cleared infections
-            infection_lookup = infection_lookup[infection_lookup["days_until_clearance"] != 0]
+            infection_lookup = infection_lookup[days_until_clearance != 0]
 
             # Remove from infection_barcodes
             if infection_barcodes is not None:
                 for cid in cleared_infection_ids:
                     if cid in infection_barcodes:
                         del infection_barcodes[cid]
+
+    # Evolve forward 1 timestep for all infection trajectories
+    if not infection_lookup.empty:
+        infection_lookup["gametocyte_density"] = infection_lookup.apply(lambda x: current_gametocyte_density(infection_age=x["infection_age"],
+                                                                                                             infection_duration=x["duration"],
+                                                                                                             aggregate_gametocyte_density=x["aggregate_gametocyte_density"],
+                                                                                                             t_first_max=x["t_first_max"],
+                                                                                                             h_first_max=x["h_first_max"],
+                                                                                                             m_decay=x["m_decay"]), axis=1)
 
     # Vectors that just bit go back to 3 days until next bite
     if not vector_lookup.empty:
@@ -273,6 +306,8 @@ def timestep_bookkeeping(infection_lookup, vector_lookup, infection_barcodes=Non
         if not vector_lookup.empty:
             # vector_lookup["days_until_next_bite"] -= 1
             vector_lookup.loc[:, "days_until_next_bite"] -= 1 # Avoid SettingWithCopyWarning
+
+
 
     return infection_lookup, vector_lookup, infection_barcodes, vector_barcodes
 
