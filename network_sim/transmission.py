@@ -170,8 +170,7 @@ def vector_to_human_transmission(sim_state,
     if immunity_on:
         # Get immunity levels for corresponding human_id in vectors_biting_today. Note that same human_id can appear multiple times
         immunity_levels = vectors_biting_today["human_id"].map(human_lookup.set_index("human_id")["immunity_level"])
-        infection_duration, infectiousness = predict_infection_stats_from_pfemp1_variant_fraction(immunity_levels)
-        raise NotImplementedError
+        infection_duration, aggregate_gametocyte_density = predict_infection_stats_from_pfemp1_variant_fraction(immunity_levels)
     else:
         infection_duration, infectiousness = get_simple_infection_stats(n_new_infectious_bites, run_parameters)
 
@@ -185,6 +184,7 @@ def vector_to_human_transmission(sim_state,
                                    "aggregate_gametocyte_density": aggregate_gametocyte_density,
                                    "infection_age": 1})
 
+    gametocyte_timeseries_shape = run_parameters.get("gametocyte_timeseries_shape", "flat")
 
     if genetics_on:
         # If genetics is on, then each infection is actually repeated a number of times depending on number of sporozoite barcodes that are cotransmitted
@@ -216,13 +216,7 @@ def vector_to_human_transmission(sim_state,
                 infection_id = group["infection_id"].iloc[j]
                 infection_barcodes[infection_id] = s
 
-            # # Adjust the infectiousness of the cotransmitted strains if there are more than 1
-            # if n_sporozoite_barcodes > 1:
-            #     unadjusted_infectiousness = group["infectiousness"].values[0]
-            #     adjusted_infectiousness = adjust_cotransmission_infectiousness(unadjusted_infectiousness, n_sporozoite_barcodes)
-            #     new_infections.loc[group.index, "infectiousness"] = adjusted_infectiousness
-
-            # Adjust the aggregate gametocyte density of the cotransmitted strains if there are more than 1
+            # Equally divide the aggregate gametocyte density of any strains cotransmitted together
             if n_sporozoite_barcodes > 1:
                 total_gametocyte_density = group["aggregate_gametocyte_density"].values[0]
                 new_infections.loc[group.index, "aggregate_gametocyte_density"] = total_gametocyte_density/n_sporozoite_barcodes
@@ -230,10 +224,11 @@ def vector_to_human_transmission(sim_state,
     # Remove extraneous columns that we don't need anymore
     new_infections = new_infections.drop(columns=["vector_id"])
 
-    # Get gametocyte densities for today
-    gametocyte_timeseries_shape = run_parameters.get("gametocyte_timeseries_shape", "constant")
-    if gametocyte_timeseries_shape == "constant":
-        new_infections["gametocyte_density"] = gametocyte_density_from_infectiousness(infectiousness)
+    # Get today's gametocyte density:
+    # If trajectory is flat, then gametocyte density is constant over the course of the infection
+    if gametocyte_timeseries_shape == "flat":
+        new_infections["gametocyte_density"] = new_infections["aggregate_gametocyte_density"]/new_infections["duration"]
+    # If trajectory is peaked, draw different shape parameters for strains that are cotransmitted together
     elif gametocyte_timeseries_shape == "peaked":
         # Draw shape parameters for this trajectory
         t_first_max, h_first_max, m_decay = draw_gametocyte_shape_parameters(new_infections["duration"].values)
@@ -248,8 +243,6 @@ def vector_to_human_transmission(sim_state,
                                                                                                          h_first_max=x["h_first_max"],
                                                                                                          m_decay=x["m_decay"]), axis=1)
         # human_infection_lookup["infectiousness"] = human_infection_lookup["gametocyte_density"].apply(lambda x: infectiousness_from_gametocyte_density(x))
-    else:
-        raise ValueError("Invalid gametocyte_timeseries_shape")
 
     # Append new infections to infection lookup
     infection_lookup = pd.concat([infection_lookup, new_infections], ignore_index=True)
@@ -257,7 +250,7 @@ def vector_to_human_transmission(sim_state,
     return infection_lookup, infection_barcodes, n_new_infectious_bites
 
 
-def timestep_bookkeeping(infection_lookup, vector_lookup, infection_barcodes=None, vector_barcodes=None):
+def timestep_bookkeeping(infection_lookup, vector_lookup, run_parameters, infection_barcodes=None, vector_barcodes=None):
     # Update infections and clear any which have completed their duration
     if not infection_lookup.empty:
         infection_lookup["infection_age"] += 1
@@ -277,8 +270,9 @@ def timestep_bookkeeping(infection_lookup, vector_lookup, infection_barcodes=Non
                     if cid in infection_barcodes:
                         del infection_barcodes[cid]
 
-    # Evolve forward 1 timestep for all infection trajectories
-    if not infection_lookup.empty:
+    # Evolve forward 1 timestep for all infection trajectories if using peaked gametocyte trajectories
+    gametocyte_timeseries_shape = run_parameters.get("gametocyte_timeseries_shape", "flat")
+    if not infection_lookup.empty and gametocyte_timeseries_shape == "peaked":
         infection_lookup["gametocyte_density"] = infection_lookup.apply(lambda x: current_gametocyte_density(infection_age=x["infection_age"],
                                                                                                              infection_duration=x["duration"],
                                                                                                              aggregate_gametocyte_density=x["aggregate_gametocyte_density"],
@@ -324,6 +318,7 @@ def evolve(sim_state,
 
     include_importations = run_parameters.get("include_importations", False)
 
+    # Core loop of transmission: human to vector, and vector to human
     vector_lookup, vector_barcodes = human_to_vector_transmission(sim_state=sim_state,
                                                                   genetics_on=genetics_on)
 
@@ -331,6 +326,7 @@ def evolve(sim_state,
                                                                                                 genetics_on=genetics_on)
     previous_max_infection_id = max(previous_max_infection_id, infection_lookup["infection_id"].max())
 
+    # Importations, if included
     if include_importations:
         infection_lookup, infection_barcodes, root_genotypes = import_human_infections(human_lookup=human_lookup,
                                                                                        infection_lookup=infection_lookup,
@@ -340,11 +336,13 @@ def evolve(sim_state,
                                                                                        previous_max_infection_id=previous_max_infection_id)
         previous_max_infection_id = max(previous_max_infection_id, infection_lookup["infection_id"].max())
 
-    # Timestep bookkeeping: clear infections which have completed their duration, update vector clocks
-    infection_lookup, vector_lookup, infection_barcodes, vector_barcodes = timestep_bookkeeping(infection_lookup,
-                                                                                                vector_lookup,
-                                                                                                infection_barcodes,
-                                                                                                vector_barcodes)
+    # Timestep bookkeeping: clear infections which have completed their duration, update vector clocks,
+    # progress through gametocyte timecourse if applicable
+    infection_lookup, vector_lookup, infection_barcodes, vector_barcodes = timestep_bookkeeping(infection_lookup=infection_lookup,
+                                                                                                vector_lookup=vector_lookup,
+                                                                                                run_parameters=run_parameters,
+                                                                                                infection_barcodes=infection_barcodes,
+                                                                                                vector_barcodes=vector_barcodes)
 
     sim_state["infection_lookup"] = infection_lookup
     sim_state["vector_lookup"] = vector_lookup

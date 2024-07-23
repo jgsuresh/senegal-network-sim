@@ -13,10 +13,10 @@ from network_sim.transmission import evolve
 from network_sim.vector import determine_biting_rates
 
 pd.options.mode.chained_assignment = None  # default='warn'
+pd.set_option('display.max_columns', 12)
 
 from network_sim.metrics import count_unique_barcodes, save_genotypes
 from network_sim.run_helpers import load_parameters
-
 
 
 
@@ -150,6 +150,7 @@ def run_sim(run_parameters, verbose=True):
     for t in range(burnin_duration):
         if t % 10 == 0 and t >0 and verbose:
             print(f"Time {t}")
+
             print(new_state_summary)
 
         new_state = evolve(sim_state=new_state,

@@ -1,0 +1,1 @@
+Testing out flat-gametocyte trajectory, with no immunity. Otherwise should be comparable to the run in 240715-01.

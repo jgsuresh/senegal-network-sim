@@ -6,4 +6,5 @@ import os
 # Join current directory with the filename
 # current_directory = os.path.dirname(os.path.realpath(__file__))
 script_directory = os.path.dirname(os.path.abspath(__file__))
-emod_infection_summary_filepath = os.path.join(script_directory, "emod_infection_summary.csv")
+# emod_infection_summary_filepath = os.path.join(script_directory, "emod_infection_summary.csv")
+emod_infection_summary_filepath = os.path.join(script_directory, "emod_infection_summary_gametocytes.csv")

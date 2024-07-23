@@ -1,0 +1,1 @@
+Testing out peaked-gametocyte trajectory, with no immunity

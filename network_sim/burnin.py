@@ -36,9 +36,8 @@ def burnin_starting_infections(human_lookup, run_parameters):
     immunity_on = run_parameters["immunity_on"]
     if immunity_on:
         immunity_levels = human_lookup["immunity_level"][human_lookup["human_id"].isin(humans_to_infect)]
-        infection_duration, infectiousness = predict_infection_stats_from_pfemp1_variant_fraction(immunity_levels)
+        infection_duration, aggregate_gametocyte_density = predict_infection_stats_from_pfemp1_variant_fraction(immunity_levels)
 
-        raise NotImplementedError("Need to convert to gametocyte densities")
     else:
         infection_duration, infectiousness = get_simple_infection_stats(N_infections=N_infections,
                                                                         run_parameters=run_parameters)
@@ -60,9 +59,9 @@ def burnin_starting_infections(human_lookup, run_parameters):
                                            "aggregate_gametocyte_density": aggregate_gametocyte_density,
                                            "infection_age": infection_age})
 
-    gametocyte_timeseries_shape = run_parameters.get("gametocyte_timeseries_shape", "constant")
-    if gametocyte_timeseries_shape == "constant":
-        human_infection_lookup["gametocyte_density"] = gametocyte_density_from_infectiousness(infectiousness)
+    gametocyte_timeseries_shape = run_parameters.get("gametocyte_timeseries_shape", "flat")
+    if gametocyte_timeseries_shape == "flat":
+        human_infection_lookup["gametocyte_density"] = human_infection_lookup["aggregate_gametocyte_density"]/human_infection_lookup["duration"]
     elif gametocyte_timeseries_shape == "peaked":
         # Draw shape parameters for this trajectory
         t_first_max, h_first_max, m_decay = draw_gametocyte_shape_parameters(infection_duration)
