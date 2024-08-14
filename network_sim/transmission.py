@@ -5,7 +5,7 @@ import pandas as pd
 from network_sim.host import current_gametocyte_density, draw_gametocyte_shape_parameters, \
     gametocyte_density_from_infectiousness, \
     get_simple_infection_stats, infectiousness_from_gametocyte_density
-from network_sim.immunity import predict_infection_stats_from_pfemp1_variant_fraction
+from network_sim.immunity import predict_infection_stats_from_pfemp1_variant_fraction_APPROX
 from network_sim.importations import import_human_infections
 from network_sim.vector import determine_sporozoite_barcodes, draw_infectious_bite_number
 
@@ -76,6 +76,9 @@ def human_to_vector_transmission(sim_state,
     })
 
     if genetics_on:
+        oocyst_distribution = run_parameters.get("oocyst_distribution", "fpg")
+        sporozoite_distribution = run_parameters.get("sporozoite_distribution", "fpg")
+
         for human_id, vector_id in zip(hids_to_resolve, vector_ids):
             infection_ids = infection_lookup["infection_id"][infection_lookup["human_id"] == human_id]
             gametocyte_densities = infection_lookup[infection_lookup["infection_id"].isin(infection_ids)]["gametocyte_density"].values
@@ -106,7 +109,11 @@ def human_to_vector_transmission(sim_state,
             for i, iid in enumerate(infection_ids):
                 gametocyte_barcodes[i, :] = infection_barcodes[iid]
 
-            sporozoite_barcodes = determine_sporozoite_barcodes(gametocyte_barcodes, male_gametocyte_counts, female_gametocyte_counts)
+            sporozoite_barcodes = determine_sporozoite_barcodes(gametocyte_barcodes=gametocyte_barcodes,
+                                                                male_gametocyte_counts=male_gametocyte_counts,
+                                                                female_gametocyte_counts=female_gametocyte_counts,
+                                                                oocyst_distribution=oocyst_distribution,
+                                                                sporozoite_distribution=sporozoite_distribution)
 
             vector_barcodes[vector_id] = {"gametocyte_barcodes": gametocyte_barcodes,
                                           "sporozoite_barcodes": sporozoite_barcodes}
@@ -170,7 +177,7 @@ def vector_to_human_transmission(sim_state,
     if immunity_on:
         # Get immunity levels for corresponding human_id in vectors_biting_today. Note that same human_id can appear multiple times
         immunity_levels = vectors_biting_today["human_id"].map(human_lookup.set_index("human_id")["immunity_level"])
-        infection_duration, aggregate_gametocyte_density = predict_infection_stats_from_pfemp1_variant_fraction(immunity_levels)
+        infection_duration, aggregate_gametocyte_density = predict_infection_stats_from_pfemp1_variant_fraction_APPROX(immunity_levels)
     else:
         infection_duration, infectiousness = get_simple_infection_stats(n_new_infectious_bites, run_parameters)
 

@@ -221,36 +221,41 @@ def determine_which_infection_ids_mosquito_picks_up(human_id, infection_lookup, 
 
 
 # @profile
-def determine_sporozoite_genotypes(vector_lookup):
-    # Determine sporozoite genotypes (i.e. the genotypes that each vector will transmit)
-
-    vector_lookup["n_gam_genotypes"] = vector_lookup["gametocyte_genotypes"].apply(len)
-    no_recombination_needed = vector_lookup["n_gam_genotypes"] == 1
-    recombination_needed = vector_lookup["n_gam_genotypes"] > 1
-
-    # If vector has a single infection, then the transmitting genotype is the same as the infection genotype
-    # no_recombination_needed = vector_lookup["gametocyte_genotypes"].apply(lambda x: len(x) == 1)
-    if no_recombination_needed.sum() > 0:
-        vector_lookup.loc[no_recombination_needed, "sporozoite_genotypes"] = vector_lookup.loc[no_recombination_needed, "gametocyte_genotypes"]
-
-    # If vector has multiple infections, then simulate recombination
-    # has_multiple_infection_objects = vector_lookup["gametocyte_genotypes"].apply(lambda x: len(x) > 1)
-    if recombination_needed.sum() > 0:
-        # Get the rows with multiple infection objects
-        multiple_infection_rows = vector_lookup[recombination_needed]
-
-        # Calculate the sporozoite genotypes for these rows
-        # sporozoite_genotypes = multiple_infection_rows["gametocyte_genotypes"].apply(gametocyte_to_sporozoite_genotypes)
-        sporozoite_genotypes = multiple_infection_rows["gametocyte_genotypes"].apply(lambda x: np.vstack(x)).apply(gametocyte_to_sporozoite_barcodes)
-        # sporozoite_genotypes = gametocyte_to_sporozoite_genotypes_numba(multiple_infection_rows["gametocyte_genotypes"].values.astype(np.int32))
-        # sporozoite_genotypes = [list(s) for s in sporozoite_genotypes]
-
-        # Update the sporozoite genotypes in the original DataFrame
-        vector_lookup.loc[recombination_needed, "sporozoite_genotypes"] = sporozoite_genotypes
-    return vector_lookup
+# DEPRECATED
+# def determine_sporozoite_genotypes(vector_lookup):
+#     # Determine sporozoite genotypes (i.e. the genotypes that each vector will transmit)
+#
+#     vector_lookup["n_gam_genotypes"] = vector_lookup["gametocyte_genotypes"].apply(len)
+#     no_recombination_needed = vector_lookup["n_gam_genotypes"] == 1
+#     recombination_needed = vector_lookup["n_gam_genotypes"] > 1
+#
+#     # If vector has a single infection, then the transmitting genotype is the same as the infection genotype
+#     # no_recombination_needed = vector_lookup["gametocyte_genotypes"].apply(lambda x: len(x) == 1)
+#     if no_recombination_needed.sum() > 0:
+#         vector_lookup.loc[no_recombination_needed, "sporozoite_genotypes"] = vector_lookup.loc[no_recombination_needed, "gametocyte_genotypes"]
+#
+#     # If vector has multiple infections, then simulate recombination
+#     # has_multiple_infection_objects = vector_lookup["gametocyte_genotypes"].apply(lambda x: len(x) > 1)
+#     if recombination_needed.sum() > 0:
+#         # Get the rows with multiple infection objects
+#         multiple_infection_rows = vector_lookup[recombination_needed]
+#
+#         # Calculate the sporozoite genotypes for these rows
+#         # sporozoite_genotypes = multiple_infection_rows["gametocyte_genotypes"].apply(gametocyte_to_sporozoite_genotypes)
+#         sporozoite_genotypes = multiple_infection_rows["gametocyte_genotypes"].apply(lambda x: np.vstack(x)).apply(gametocyte_to_sporozoite_barcodes)
+#         # sporozoite_genotypes = gametocyte_to_sporozoite_genotypes_numba(multiple_infection_rows["gametocyte_genotypes"].values.astype(np.int32))
+#         # sporozoite_genotypes = [list(s) for s in sporozoite_genotypes]
+#
+#         # Update the sporozoite genotypes in the original DataFrame
+#         vector_lookup.loc[recombination_needed, "sporozoite_genotypes"] = sporozoite_genotypes
+#     return vector_lookup
 
 # @njit
-def determine_sporozoite_barcodes(gametocyte_barcodes, male_gametocyte_counts, female_gametocyte_counts):
+def determine_sporozoite_barcodes(gametocyte_barcodes,
+                                  male_gametocyte_counts,
+                                  female_gametocyte_counts,
+                                  oocyst_distribution,
+                                  sporozoite_distribution):
     # Determine sporozoite genotypes (i.e. the genotypes that each vector will transmit)
     # Assumes gametocyte_genotypes are in the form of an [N_barcodes x N_barcode_sites] numpy array
 
@@ -268,8 +273,12 @@ def determine_sporozoite_barcodes(gametocyte_barcodes, male_gametocyte_counts, f
     if gametocyte_barcodes_without_duplicates.shape[0] == 1:
         return gametocyte_barcodes_without_duplicates
 
-    # Recombination needed if multiple unique gametocyte genotypes
-    return gametocyte_to_sporozoite_barcodes(gametocyte_barcodes, male_gametocyte_counts, female_gametocyte_counts)
+    # Recombination needed if multiple unique gametocyte barcodes
+    return gametocyte_to_sporozoite_barcodes(gametocyte_barcodes=gametocyte_barcodes,
+                                             male_gametocyte_counts=male_gametocyte_counts,
+                                             female_gametocyte_counts=female_gametocyte_counts,
+                                             oocyst_distribution=oocyst_distribution,
+                                             sporozoite_distribution=sporozoite_distribution)
 
 
 def determine_biting_rates(N_individuals, run_parameters):

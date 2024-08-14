@@ -73,7 +73,7 @@ df_emod = pd.read_csv(manifest.emod_infection_summary_filepath)
 # immunity_bins = np.arange(0, 1.0 + 0.05, 0.05)
 df_emod['immunity_bin'] = df_emod["immunity_bin"].astype(str)
 grouped = df_emod.groupby('immunity_bin')
-def predict_infection_stats_from_pfemp1_variant_fraction(pfemp1_variant_frac):
+def predict_infection_stats_from_pfemp1_variant_fraction_EXACT(pfemp1_variant_frac):
     # Draw infection stats from EMOD lookup data
 
     # For each immunity value, find corresponding immunity bin and draw from the distribution
@@ -99,11 +99,25 @@ def predict_infection_stats_from_pfemp1_variant_fraction(pfemp1_variant_frac):
 
     return duration, 10**log10_total_gametocyte_density
 
+def predict_infection_stats_from_pfemp1_variant_fraction_APPROX(pfemp1_variant_frac):
+    pfemp1_variant_frac = np.array(pfemp1_variant_frac)
+    # Use simple mean approximations from EMOD data, rather than drawing from exact 2D distributions
+    duration = np.round(-149.12502686*pfemp1_variant_frac + 240.85719560771392)
 
-def get_infection_stats_from_age_and_eir(age_in_years, relative_biting_rate, daily_sim_eir):
+    total_gametocyte_density = 3635.056354968346 -6409.78868457*pfemp1_variant_frac + 2767.16784511*pfemp1_variant_frac**2
+    # Ensure log10_total_gametocyte_density is positive
+    total_gametocyte_density = np.where(total_gametocyte_density < 1e-4, 1e-4, total_gametocyte_density)
+
+    return duration, total_gametocyte_density
+
+
+def get_infection_stats_from_age_and_eir(age_in_years, relative_biting_rate, daily_sim_eir, empirical_distribution="approximate"):
     # Predict infection stats from age, relative biting rate, and daily simulated EIR
     pfemp1_variant_frac = predict_emod_pfemp1_variant_fraction(age_in_years, relative_biting_rate, daily_sim_eir)
-    return predict_infection_stats_from_pfemp1_variant_fraction(pfemp1_variant_frac)
+    if empirical_distribution == "exact":
+        return predict_infection_stats_from_pfemp1_variant_fraction_EXACT(pfemp1_variant_frac)
+    elif empirical_distribution == "approximate":
+        return predict_infection_stats_from_pfemp1_variant_fraction_APPROX(pfemp1_variant_frac)
 
 #
 # if __name__ == "__main__":
@@ -129,12 +143,25 @@ def get_infection_stats_from_age_and_eir(age_in_years, relative_biting_rate, dai
 #     plt.show()
 
 if __name__ == "__main__":
-    ages = np.linspace(1, 50, 100)
+    ages = np.linspace(1, 20, 100)
+    # Repeat ages to get more data points
+    ages = np.repeat(ages, 10)
     relative_biting_rate = 1
     daily_sim_eir = 0.1
     duration, total_gametocyte_density = get_infection_stats_from_age_and_eir(ages, relative_biting_rate, daily_sim_eir)
 
     import matplotlib.pyplot as plt
+    plt.figure()
+    plt.subplot(211)
     plt.scatter(ages, duration, c=np.log10(total_gametocyte_density), cmap='viridis')
     plt.colorbar()
+    plt.xlabel("Age (years)")
+    plt.ylabel("Duration (days)")
+
+    plt.subplot(212)
+    plt.scatter(ages, total_gametocyte_density, c=duration, cmap='viridis', alpha=0.1)
+    plt.colorbar()
+    plt.yscale("log")
     plt.show()
+
+    

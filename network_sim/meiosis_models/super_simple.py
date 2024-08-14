@@ -97,18 +97,21 @@ def generate_gametocyte_sex(n_gametocytes):
     return gametocyte_sex
 
 # @njit
-def gametocyte_to_oocyst_offspring_barcodes(gametocyte_genotypes, male_gametocyte_counts, female_gametocyte_counts, num_oocyst_model="fpg"):
+def gametocyte_to_oocyst_offspring_barcodes(gametocyte_barcodes, male_gametocyte_counts, female_gametocyte_counts, oocyst_distribution):
     # Assumes gametocytype genotypes is a numpy matrix. Each row is a different genotype.
     # Assumes all oocyst offspring have equal likelihood to be onwardly transmitted.
 
-    n_gametocyte_genotypes = gametocyte_genotypes.shape[0]
+    n_gametocyte_genotypes = gametocyte_barcodes.shape[0]
 
     # If there is only one genotype, clonal reproduction occurs
     if n_gametocyte_genotypes == 1:
-        return gametocyte_genotypes
+        return gametocyte_barcodes
     else:
         # n_oocyst = num_oocysts(model=num_oocyst_model, min_oocysts=1)
-        n_oocyst = num_oocysts_fast()
+        if oocyst_distribution == "fixed":
+            n_oocyst = 3
+        else:
+            n_oocyst = num_oocysts_fast()
         #todo could consider a gametocyte-dependent model for number of oocysts (e.g. https://elifesciences.org/articles/34463#fig3)
         # Note that Jon also considered this for FPG and went with a negative binomial for now because data isn't that great.
 
@@ -117,7 +120,7 @@ def gametocyte_to_oocyst_offspring_barcodes(gametocyte_genotypes, male_gametocyt
         total_n_female_gametocytes = np.sum(female_gametocyte_counts)
         n_oocyst = min([n_oocyst, total_n_male_gametocytes, total_n_female_gametocytes])
 
-        offspring_genotypes = np.empty((n_oocyst*4, gametocyte_genotypes.shape[1]), dtype=np.int64)
+        offspring_genotypes = np.empty((n_oocyst * 4, gametocyte_barcodes.shape[1]), dtype=np.int64)
         male_gametocyte_choices = np.arange(n_gametocyte_genotypes).repeat(male_gametocyte_counts)
         female_gametocyte_choices = np.arange(n_gametocyte_genotypes).repeat(female_gametocyte_counts)
 
@@ -125,7 +128,7 @@ def gametocyte_to_oocyst_offspring_barcodes(gametocyte_genotypes, male_gametocyt
         for i in range(n_oocyst):
             # Each oocyst has two explicit parents which are drawn without replacement from the gametocyte pool
             parent1_index, parent2_index, male_gametocyte_choices, female_gametocyte_choices = select_and_remove_two(male_gametocyte_choices, female_gametocyte_choices)
-            parent1_genotype = gametocyte_genotypes[parent1_index]
+            parent1_genotype = gametocyte_barcodes[parent1_index]
 
             if parent1_index == parent2_index:
                 # Selfing
@@ -134,7 +137,7 @@ def gametocyte_to_oocyst_offspring_barcodes(gametocyte_genotypes, male_gametocyt
                                                                     parent1_genotype,
                                                                     parent1_genotype))
             else:
-                parent2_genotype = gametocyte_genotypes[parent2_index]
+                parent2_genotype = gametocyte_barcodes[parent2_index]
 
                 # check if parent1_genotype and parent2_genotype are same
                 if np.array_equal(parent1_genotype, parent2_genotype):
@@ -172,11 +175,14 @@ def num_sporozites_fast(): #hardcoded for speed
 # @njit
 # @profile
 @njit
-def oocyst_offspring_to_sporozoite_barcodes(oocyst_offspring_genotypes):
+def oocyst_offspring_to_sporozoite_barcodes(oocyst_offspring_barcodes, sporozoite_distribution):
     # n_spz = num_sporozites(min_sporozoites=1)
-    n_spz = num_sporozites_fast()
-    indices = np.random.choice(oocyst_offspring_genotypes.shape[0], size=n_spz)
-    return oocyst_offspring_genotypes[indices]
+    if sporozoite_distribution == "fixed":
+        n_spz = 12
+    else:
+        n_spz = num_sporozites_fast()
+    indices = np.random.choice(oocyst_offspring_barcodes.shape[0], size=n_spz)
+    return oocyst_offspring_barcodes[indices]
 
 # DEPRECATED
 # def gametocyte_to_sporozoite_genotypes(gametocyte_genotypes, gametocyte_densities=None):
@@ -197,9 +203,17 @@ def oocyst_offspring_to_sporozoite_barcodes(oocyst_offspring_genotypes):
 #         return sporozoite_genotypes_without_duplicates
 
 # @njit
-def gametocyte_to_sporozoite_barcodes(gametocyte_barcodes, male_gametocyte_counts, female_gametocyte_counts):
-    oocyst_offspring_barcodes = gametocyte_to_oocyst_offspring_barcodes(gametocyte_barcodes, male_gametocyte_counts, female_gametocyte_counts)
-    sporozoite_barcodes = oocyst_offspring_to_sporozoite_barcodes(oocyst_offspring_barcodes)
+def gametocyte_to_sporozoite_barcodes(gametocyte_barcodes,
+                                      male_gametocyte_counts,
+                                      female_gametocyte_counts,
+                                      oocyst_distribution,
+                                      sporozoite_distribution):
+    oocyst_offspring_barcodes = gametocyte_to_oocyst_offspring_barcodes(gametocyte_barcodes=gametocyte_barcodes,
+                                                                        male_gametocyte_counts=male_gametocyte_counts,
+                                                                        female_gametocyte_counts=female_gametocyte_counts,
+                                                                        oocyst_distribution=oocyst_distribution)
+    sporozoite_barcodes = oocyst_offspring_to_sporozoite_barcodes(oocyst_offspring_barcodes=oocyst_offspring_barcodes,
+                                                                  sporozoite_distribution=sporozoite_distribution)
 
     # Remove duplicates - #fixme Account for different likelihoods of onward transmission
     if sporozoite_barcodes.shape[0] == 1:

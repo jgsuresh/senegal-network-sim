@@ -4,7 +4,7 @@ import pandas as pd
 
 from network_sim.host import gametocyte_density_from_infectiousness, get_simple_infection_stats, \
     initialize_new_human_infections
-from network_sim.immunity import predict_infection_stats_from_pfemp1_variant_fraction
+from network_sim.immunity import predict_infection_stats_from_pfemp1_variant_fraction_APPROX
 
 
 # @profile
@@ -25,7 +25,7 @@ def import_human_infections(human_lookup, infection_lookup, run_parameters, root
     immunity_on = run_parameters.get("immunity_on", False)
     if immunity_on:
         immunity_levels = human_lookup["immunity_level"][human_lookup["human_id"].isin(humans_to_infect)]
-        infection_duration, infectiousness = predict_infection_stats_from_pfemp1_variant_fraction(immunity_levels)
+        infection_duration, infectiousness = predict_infection_stats_from_pfemp1_variant_fraction_APPROX(immunity_levels)
     else:
         infection_duration, infectiousness = get_simple_infection_stats(len(humans_to_infect), run_parameters)
 

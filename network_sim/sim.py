@@ -56,10 +56,15 @@ def initial_setup(run_parameters):
 
 def generate_human_lookup(N_individuals, run_parameters, verbose=True):
     immunity_on = run_parameters.get("immunity_on", False)
+    human_age_distribution = run_parameters.get("human_age_distribution", True)
 
     # Generate human lookup with ages and biting rates
     human_lookup = pd.DataFrame({"human_id": np.arange(N_individuals)})
-    human_lookup["age"] = draw_individual_ages(N_individuals)
+    if human_age_distribution:
+        human_lookup["age"] = draw_individual_ages(N_individuals)
+    else:
+        human_lookup["age"] = np.ones(N_individuals) * 20
+
     if verbose:
         print("Note: currently assumes that relative biting rates are constant for each person across the simulation.")
     biting_rate, relative_biting_risk = determine_biting_rates(N_individuals, run_parameters)

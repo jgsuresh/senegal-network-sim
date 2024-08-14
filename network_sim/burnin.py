@@ -3,9 +3,8 @@ import pandas as pd
 
 from network_sim.host import current_gametocyte_density, draw_gametocyte_shape_parameters, \
     gametocyte_density_from_infectiousness, \
-    get_simple_infection_stats, infectiousness_from_gametocyte_density
-from network_sim.immunity import get_infection_stats_from_age_and_eir, \
-    predict_infection_stats_from_pfemp1_variant_fraction
+    get_simple_infection_stats
+from network_sim.immunity import predict_infection_stats_from_pfemp1_variant_fraction_APPROX
 
 
 def burnin_starting_infections(human_lookup, run_parameters):
@@ -36,7 +35,7 @@ def burnin_starting_infections(human_lookup, run_parameters):
     immunity_on = run_parameters["immunity_on"]
     if immunity_on:
         immunity_levels = human_lookup["immunity_level"][human_lookup["human_id"].isin(humans_to_infect)]
-        infection_duration, aggregate_gametocyte_density = predict_infection_stats_from_pfemp1_variant_fraction(immunity_levels)
+        infection_duration, aggregate_gametocyte_density = predict_infection_stats_from_pfemp1_variant_fraction_APPROX(immunity_levels)
 
     else:
         infection_duration, infectiousness = get_simple_infection_stats(N_infections=N_infections,
