@@ -109,14 +109,15 @@ def human_to_vector_transmission(sim_state,
             for i, iid in enumerate(infection_ids):
                 gametocyte_barcodes[i, :] = infection_barcodes[iid]
 
-            sporozoite_barcodes = determine_sporozoite_barcodes(gametocyte_barcodes=gametocyte_barcodes,
-                                                                male_gametocyte_counts=male_gametocyte_counts,
-                                                                female_gametocyte_counts=female_gametocyte_counts,
-                                                                oocyst_distribution=oocyst_distribution,
-                                                                sporozoite_distribution=sporozoite_distribution)
+            spz_barcodes, spz_weights = determine_sporozoite_barcodes(gametocyte_barcodes=gametocyte_barcodes,
+                                                                      male_gametocyte_counts=male_gametocyte_counts,
+                                                                      female_gametocyte_counts=female_gametocyte_counts,
+                                                                      oocyst_distribution=oocyst_distribution,
+                                                                      sporozoite_distribution=sporozoite_distribution)
 
             vector_barcodes[vector_id] = {"gametocyte_barcodes": gametocyte_barcodes,
-                                          "sporozoite_barcodes": sporozoite_barcodes}
+                                          "sporozoite_barcodes": spz_barcodes,
+                                          "sporozoite_barcode_weights": spz_weights}
 
 
     # Add new vectors to vector lookup
@@ -213,6 +214,9 @@ def vector_to_human_transmission(sim_state,
         for i, group in new_infections.groupby(["human_id", "vector_id"]):
             human_id, vector_id = i
             sporozoite_barcodes = vector_barcodes[vector_id]["sporozoite_barcodes"]
+            sporozoite_barcode_weights = vector_barcodes[vector_id]["sporozoite_barcode_weights"]
+            if np.sum(sporozoite_barcode_weights) != 1:
+                pass
 
             n_sporozoite_barcodes = sporozoite_barcodes.shape[0]
 
@@ -223,10 +227,16 @@ def vector_to_human_transmission(sim_state,
                 infection_id = group["infection_id"].iloc[j]
                 infection_barcodes[infection_id] = s
 
-            # Equally divide the aggregate gametocyte density of any strains cotransmitted together
+            # Apportion the aggregate gametocyte density of any strains cotransmitted together using the sporozoite_weights
             if n_sporozoite_barcodes > 1:
                 total_gametocyte_density = group["aggregate_gametocyte_density"].values[0]
-                new_infections.loc[group.index, "aggregate_gametocyte_density"] = total_gametocyte_density/n_sporozoite_barcodes
+                new_infections.loc[group.index, "aggregate_gametocyte_density"] = total_gametocyte_density*sporozoite_barcode_weights
+
+            pass
+
+    if genetics_on:
+        # print("test")
+        pass
 
     # Remove extraneous columns that we don't need anymore
     new_infections = new_infections.drop(columns=["vector_id"])

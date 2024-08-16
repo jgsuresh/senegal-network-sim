@@ -8,7 +8,12 @@ from network_sim.immunity import predict_infection_stats_from_pfemp1_variant_fra
 
 
 # @profile
-def import_human_infections(human_lookup, infection_lookup, run_parameters, root_genotypes=None, infection_barcodes=None, previous_max_infection_id=0):
+def import_human_infections(human_lookup,
+                            infection_lookup,
+                            run_parameters,
+                            root_genotypes=None,
+                            infection_barcodes=None,
+                            previous_max_infection_id=0):
     importations_per_day = float(run_parameters.get("importations_per_day"))
 
     if importations_per_day == 0.0:
@@ -19,7 +24,7 @@ def import_human_infections(human_lookup, infection_lookup, run_parameters, root
     if n_imports == 0:
         return infection_lookup, infection_barcodes, root_genotypes
 
-    # People receiving infections are drawn randomly with replacement
+    # People receiving infections are drawn randomly with replacement #fixme include option for imports to distributed according to risk
     humans_to_infect = np.sort(np.random.choice(human_lookup["human_id"], n_imports, replace=True))
 
     immunity_on = run_parameters.get("immunity_on", False)

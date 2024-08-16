@@ -1,6 +1,6 @@
 N_barcode_positions: 24
-N_individuals: 1000
-N_initial_infections: 400
+N_individuals: 10000
+N_initial_infections: 4000
 human_age_distribution: false
 age_modifies_biting: false
 age_modifies_infectiousness: false
@@ -9,7 +9,8 @@ burnin_duration: 500
 daily_bite_rate: 0.3
 daily_bite_rate_distribution: constant
 immunity_on: true
-include_importations: false
+include_importations: true
+importations_per_day: 0.02739726027
 #individual_infection_duration: 100
 #individual_infectiousness: 0.02
 #infection_duration_distribution: constant

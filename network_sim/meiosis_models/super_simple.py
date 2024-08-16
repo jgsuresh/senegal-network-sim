@@ -208,6 +208,8 @@ def gametocyte_to_sporozoite_barcodes(gametocyte_barcodes,
                                       female_gametocyte_counts,
                                       oocyst_distribution,
                                       sporozoite_distribution):
+    # Return sporozoite barcodes with relative weights
+
     oocyst_offspring_barcodes = gametocyte_to_oocyst_offspring_barcodes(gametocyte_barcodes=gametocyte_barcodes,
                                                                         male_gametocyte_counts=male_gametocyte_counts,
                                                                         female_gametocyte_counts=female_gametocyte_counts,
@@ -215,15 +217,10 @@ def gametocyte_to_sporozoite_barcodes(gametocyte_barcodes,
     sporozoite_barcodes = oocyst_offspring_to_sporozoite_barcodes(oocyst_offspring_barcodes=oocyst_offspring_barcodes,
                                                                   sporozoite_distribution=sporozoite_distribution)
 
-    # Remove duplicates - #fixme Account for different likelihoods of onward transmission
-    if sporozoite_barcodes.shape[0] == 1:
-        return sporozoite_barcodes
-    else:
-        #fixme Allow for different sporozoite barcodes to have different weights
-
-        # sporozoite_barcodes_without_duplicates = np.unique(sporozoite_barcodes, axis=0)
-        sporozoite_barcodes_without_duplicates = find_unique_rows(sporozoite_barcodes)
-        return sporozoite_barcodes_without_duplicates
+    # Remove duplicates and count the number of each
+    spz_barcodes, spz_barcode_counts = np.unique(sporozoite_barcodes, axis=0, return_counts=True)
+    spz_barcode_weights = spz_barcode_counts / np.sum(spz_barcode_counts)
+    return spz_barcodes, spz_barcode_weights
 
 # def _explore_sporozoite_diversity(n_unique_gametocyte_genotypes=10, n_barcode_positions=15):
 #     # Compute number of unique genotypes in sporozoites

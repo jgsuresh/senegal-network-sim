@@ -98,7 +98,8 @@ def initialize_genetics(sim_state, allele_freq=0.5):
     barcode_indices = np.random.choice(n_human_infections, n_infected_vectors)
     for vid, barcode_index in zip(sim_state["vector_lookup"]["vector_id"], barcode_indices):
         sim_state["vector_barcodes"][vid] = {"gametocyte_barcodes": np.array([all_barcodes[barcode_index]]),
-                                             "sporozoite_barcodes": np.array([all_barcodes[barcode_index]])}
+                                             "sporozoite_barcodes": np.array([all_barcodes[barcode_index]]),
+                                             "sporozoite_barcode_weights": np.array([1])}
 
     return sim_state
 # @profile

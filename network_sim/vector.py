@@ -265,20 +265,22 @@ def determine_sporozoite_barcodes(gametocyte_barcodes,
 
     # No recombination needed if only one gametocyte barcode
     if n_gametocyte_barcodes == 1:
-        return gametocyte_barcodes
+        return gametocyte_barcodes, np.array([1.])
     #todo Add weights for sporozoite barcodes
 
     # No recombination needed if only one unique barcode
     gametocyte_barcodes_without_duplicates = find_unique_rows(gametocyte_barcodes)
     if gametocyte_barcodes_without_duplicates.shape[0] == 1:
-        return gametocyte_barcodes_without_duplicates
+        return gametocyte_barcodes_without_duplicates, np.array([1.])
 
     # Recombination needed if multiple unique gametocyte barcodes
-    return gametocyte_to_sporozoite_barcodes(gametocyte_barcodes=gametocyte_barcodes,
-                                             male_gametocyte_counts=male_gametocyte_counts,
-                                             female_gametocyte_counts=female_gametocyte_counts,
-                                             oocyst_distribution=oocyst_distribution,
-                                             sporozoite_distribution=sporozoite_distribution)
+    spz_barcodes, spz_barcode_weights = gametocyte_to_sporozoite_barcodes(gametocyte_barcodes=gametocyte_barcodes,
+                                                                          male_gametocyte_counts=male_gametocyte_counts,
+                                                                          female_gametocyte_counts=female_gametocyte_counts,
+                                                                          oocyst_distribution=oocyst_distribution,
+                                                                          sporozoite_distribution=sporozoite_distribution)
+
+    return spz_barcodes, spz_barcode_weights
 
 
 def determine_biting_rates(N_individuals, run_parameters):
