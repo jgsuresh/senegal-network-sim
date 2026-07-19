@@ -201,7 +201,7 @@ def draw_gametocyte_shape_parameters(infection_durations, y_floor=1e-4):
 
 # @njit
 # @vectorize([float])
-def current_gametocyte_density(infection_age, infection_duration, aggregate_gametocyte_density, t_first_max, h_first_max, m_decay, y_floor=1e-4):
+def current_gametocyte_density_SCALAR(infection_age, infection_duration, aggregate_gametocyte_density, t_first_max, h_first_max, m_decay, y_floor=1e-4):
     # Return gametocyte density at a given time point in the infection
     if infection_age <= 21:
         return 0.
@@ -228,3 +228,105 @@ def current_gametocyte_density(infection_age, infection_duration, aggregate_game
     return y_rise_and_decay[int(infection_age) - 21] * aggregate_gametocyte_density
 
 
+# Use precomputed / simplified gametocyte trajectory
+normalized_gametocyte_trajectory = np.array([
+0.00e+00,
+0.00e+00,
+0.00e+00,
+0.00e+00,
+0.00e+00,
+0.00e+00,
+0.00e+00,
+0.00e+00,
+0.00e+00,
+0.00e+00,
+0.00e+00,
+0.00e+00,
+0.00e+00,
+0.00e+00,
+0.00e+00,
+0.00e+00,
+0.00e+00,
+0.00e+00,
+0.00e+00,
+0.00e+00,
+0.00e+00,
+0.00e+00,
+1.00e-04,
+1.00e-04,
+1.00e-04,
+1.00e-04,
+1.00e-04,
+1.19e-04,
+2.81e-04,
+6.67e-04,
+1.58e-03,
+3.75e-03,
+8.89e-03,
+2.11e-02,
+5.00e-02,
+1.19e-01,
+1.03e-01,
+8.98e-02,
+7.81e-02,
+6.80e-02,
+5.92e-02,
+5.15e-02,
+4.48e-02,
+3.90e-02,
+3.40e-02,
+2.96e-02,
+2.57e-02,
+2.24e-02,
+1.95e-02,
+1.70e-02,
+1.48e-02,
+1.28e-02,
+1.12e-02,
+9.73e-03,
+8.47e-03,
+7.37e-03,
+6.41e-03,
+5.58e-03,
+4.86e-03,
+4.23e-03,
+3.68e-03,
+3.20e-03,
+2.79e-03,
+2.43e-03,
+2.11e-03,
+1.84e-03,
+1.60e-03,
+1.39e-03,
+1.21e-03,
+1.05e-03,
+9.17e-04,
+7.98e-04,
+6.95e-04,
+6.05e-04,
+5.26e-04,
+4.58e-04,
+3.99e-04,
+3.47e-04,
+3.02e-04,
+2.63e-04,
+2.29e-04,
+1.99e-04,
+1.73e-04,
+1.51e-04,
+1.31e-04,
+1.14e-04,
+1.00e-04,
+])
+
+@njit
+def current_gametocyte_density_from_precomputed_trajectory(infection_age_array, infection_duration_array, aggregate_gametocyte_density_array):
+    # Return gametocyte density at a given time point in the infection
+    # Use precomputed / simplified gametocyte trajectory to speed up computation
+    # Explicitly vectorized for speed.
+    g = np.zeros_like(infection_age_array)
+    idx = (infection_duration_array-1).astype(int)
+    # For infections longer than the trajectory, use the last value
+    idx[idx >= len(normalized_gametocyte_trajectory)] = len(normalized_gametocyte_trajectory) - 1
+
+    return normalized_gametocyte_trajectory[idx] * aggregate_gametocyte_density_array

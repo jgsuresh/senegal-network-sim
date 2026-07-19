@@ -24,7 +24,9 @@ base_sim_params = {
     "daily_bite_rate": 0.3,
     "daily_bite_rate_distribution": "constant",
     "immunity_on": True,
-    "include_importations": False,
+    "include_importations": True,
+    "importations_per_day": 0.02739726027, # 1 per thousand individuals per year
+    "importation_allele_freq": 0.5,
     "mean_bites_from_infected_mosquito": 1,
     "prob_survive_to_infectiousness": 1,
     "run_environment": "comps",

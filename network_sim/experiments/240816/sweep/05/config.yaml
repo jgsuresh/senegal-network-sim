@@ -10,7 +10,9 @@ daily_bite_rate_distribution: constant
 gametocyte_timeseries_shape: flat
 human_age_distribution: false
 immunity_on: true
-include_importations: false
+importation_allele_freq: 0.5
+importations_per_day: 0.02739726027
+include_importations: true
 mean_bites_from_infected_mosquito: 1
 oocyst_distribution: fixed
 prob_survive_to_infectiousness: 1

@@ -6,11 +6,12 @@ age_modifies_biting: false
 age_modifies_infectiousness: false
 bites_from_infected_mosquito_distribution: constant
 burnin_duration: 500
-daily_bite_rate: 0.3
+daily_bite_rate: 0.25
 daily_bite_rate_distribution: constant
 immunity_on: true
 include_importations: true
-importations_per_day: 0.02739726027
+importation_allele_frequency: 0.5
+importations_per_day: 0.02 # 0.02739726027 # 1 per thousand individuals per year
 #individual_infection_duration: 100
 #individual_infectiousness: 0.02
 #infection_duration_distribution: constant

@@ -1,0 +1,1 @@
+Testing gametocyte production suppression for superinfected individuals (i.e. individuals who have 10 EMOD infections are not 10x more infectious)

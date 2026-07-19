@@ -1,7 +1,8 @@
 import numpy as np
 import pandas as pd
 
-from network_sim.host import current_gametocyte_density, draw_gametocyte_shape_parameters, \
+from network_sim.host import current_gametocyte_density_SCALAR, \
+    current_gametocyte_density_from_precomputed_trajectory, draw_gametocyte_shape_parameters, \
     gametocyte_density_from_infectiousness, \
     get_simple_infection_stats
 from network_sim.immunity import predict_infection_stats_from_pfemp1_variant_fraction_APPROX
@@ -68,15 +69,24 @@ def burnin_starting_infections(human_lookup, run_parameters):
         human_infection_lookup["h_first_max"] = h_first_max
         human_infection_lookup["m_decay"] = m_decay
 
-        human_infection_lookup["gametocyte_density"] = human_infection_lookup.apply(lambda x: current_gametocyte_density(infection_age=x["infection_age"],
-                                                                                                                         infection_duration=x["duration"],
-                                                                                                                         aggregate_gametocyte_density=x["aggregate_gametocyte_density"],
-                                                                                                                         t_first_max=x["t_first_max"],
-                                                                                                                         h_first_max=x["h_first_max"],
-                                                                                                                         m_decay=x["m_decay"]), axis=1)
+        human_infection_lookup["gametocyte_density"] = human_infection_lookup.apply(lambda x: current_gametocyte_density_SCALAR(infection_age=x["infection_age"],
+                                                                                                                                infection_duration=x["duration"],
+                                                                                                                                aggregate_gametocyte_density=x["aggregate_gametocyte_density"],
+                                                                                                                                t_first_max=x["t_first_max"],
+                                                                                                                                h_first_max=x["h_first_max"],
+                                                                                                                                m_decay=x["m_decay"]), axis=1)
+
         # human_infection_lookup["infectiousness"] = human_infection_lookup["gametocyte_density"].apply(lambda x: infectiousness_from_gametocyte_density(x))
+    elif gametocyte_timeseries_shape == "peaked_and_precomputed":
+        human_infection_lookup["gametocyte_density"] = current_gametocyte_density_from_precomputed_trajectory(infection_age_array=human_infection_lookup["infection_age"].values,
+                                                                                                              infection_duration_array=human_infection_lookup["duration"].values,
+                                                                                                              aggregate_gametocyte_density_array=human_infection_lookup["aggregate_gametocyte_density"].values,
+                                                                                                              )
+
 
     else:
         raise ValueError("Invalid gametocyte_timeseries_shape")
+
+    human_infection_lookup["vector_id"] = -1
 
     return human_infection_lookup

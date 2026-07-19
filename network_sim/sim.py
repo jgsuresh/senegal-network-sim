@@ -1,4 +1,4 @@
-# from line_profiler_pycharm import profile
+from line_profiler_pycharm import profile
 
 import numpy as np
 import pandas as pd
@@ -33,6 +33,7 @@ def initial_setup(run_parameters):
                                                              initialize_genotypes=True)
     # Add infection IDs
     human_infection_lookup["infection_id"] = np.arange(N_initial_infections)
+    human_infection_lookup["vector_id"] = -1
 
     if track_roots:
         root_lookup = human_infection_lookup[["human_id", "genotype"]].copy()
@@ -71,10 +72,10 @@ def generate_human_lookup(N_individuals, run_parameters, verbose=True):
     human_lookup["biting_rate"] = biting_rate
     human_lookup["relative_biting_risk"] = relative_biting_risk
     if immunity_on:
-        # Initialize immunity levels assuming dummy daily eir of 0.02
+        # Initialize immunity levels assuming dummy daily eir of 0.01
         human_lookup["immunity_level"] = predict_emod_pfemp1_variant_fraction(age_in_years=human_lookup["age"],
                                                                               relative_biting_risk=human_lookup["relative_biting_risk"],
-                                                                              daily_sim_eir=0.02)
+                                                                              daily_sim_eir=0.01)
     return human_lookup
 
 def initialize_genetics(sim_state, allele_freq=0.5):
@@ -102,7 +103,7 @@ def initialize_genetics(sim_state, allele_freq=0.5):
                                              "sporozoite_barcode_weights": np.array([1])}
 
     return sim_state
-# @profile
+@profile
 def run_sim(run_parameters, verbose=True):
     if verbose:
         print(run_parameters)
@@ -235,6 +236,7 @@ def run_sim(run_parameters, verbose=True):
     plt.plot(summary_statistics["time"], summary_statistics["n_humans_infected"], label="Number of infected humans")
     plt.plot(summary_statistics["time"], summary_statistics["n_infected_vectors"], label="Number of vectors")
     plt.plot(summary_statistics["time"], summary_statistics["n_unique_genotypes"], label="Number of unique genotypes")
+    plt.plot(summary_statistics["time"], summary_statistics["n_roots"], label="Number of roots")
     plt.axvline(burnin_duration, color='gray', linestyle='dashed')
     plt.xlabel("Time")
     plt.ylabel("Count")
